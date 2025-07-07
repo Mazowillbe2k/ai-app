@@ -39,7 +39,7 @@ ENV NODE_ENV=development
 ENV PATH=/workspace/node_modules/.bin:$PATH
 
 # Expose common development ports
-EXPOSE 3000 5173 8080 4000 5000
+EXPOSE 10000
 
 # Default command
 CMD ["tail", "-f", "/dev/null"] 

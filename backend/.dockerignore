@@ -1,0 +1,12 @@
+node_modules/
+*.log
+.git/
+.gitignore
+README.md
+.env*
+logs/
+workspace/
+backend/
+*.md
+.DS_Store
+Thumbs.db 

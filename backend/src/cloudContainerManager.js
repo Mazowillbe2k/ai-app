@@ -146,11 +146,8 @@ export class CloudContainerManager {
       logger.info(`🚀 Executing in cloud mode: ${command}`);
       logger.info(`📁 Working directory: ${execDir}`);
       
-      // Preprocess command for compatibility
+      // Preprocess command for compatibility  
       const processedCommand = this.preprocessCommand(command);
-      if (processedCommand !== command) {
-        logger.info(`🔄 Preprocessed command: ${processedCommand}`);
-      }
       
       // Execute all safe commands directly - no more simulation
       if (this.isSafeCommand(processedCommand)) {
@@ -199,7 +196,7 @@ export class CloudContainerManager {
         }
 
         // Handle post-creation setup for project creation commands
-        if (processedCommand.includes('create-vite') || processedCommand.includes('create vite')) {
+        if (processedCommand.includes('create-vite') || processedCommand.includes('create vite') || processedCommand.includes('degit')) {
           await this.handlePostProjectCreation(containerId, processedCommand, execDir);
         }
         
@@ -238,8 +235,11 @@ export class CloudContainerManager {
   // Handle post project creation setup
   async handlePostProjectCreation(containerId, command, execDir) {
     try {
-      // Extract project name from create command - handle quoted names with spaces
-      let projectNameMatch = command.match(/create-vite@?\S*\s+"([^"]+)"/);  // quoted names
+      // Extract project name from degit or create-vite command
+      let projectNameMatch = command.match(/degit\s+\S+\s+([^\s]+)/);  // degit command
+      if (!projectNameMatch) {
+        projectNameMatch = command.match(/create-vite@?\S*\s+"([^"]+)"/);  // quoted names
+      }
       if (!projectNameMatch) {
         projectNameMatch = command.match(/create-vite@?\S*\s+([^\s-]+)/);  // unquoted names
       }
@@ -328,9 +328,11 @@ export class CloudContainerManager {
       '^git',
       'npm (run|start|build|test|install|ci)',
       'npx.*create',
+      'npx.*degit',
       'cd.*&&.*npm',
       'cd.*&&.*bun',
-      'cd.*&&.*yarn'
+      'cd.*&&.*yarn',
+      'bun (run|start|build|test|install|dev)'
     ];
     
     return safePatterns.some(pattern => 
@@ -338,25 +340,16 @@ export class CloudContainerManager {
     );
   }
 
-  // Enhanced command preprocessing for compatibility
+  // Convert create-vite commands to use degit for faster, more reliable project creation
   preprocessCommand(command) {
-    // Handle Node.js version compatibility for create-vite
-    if (command.includes('npm create vite@latest') || command.includes('npx create-vite@latest')) {
-      // Use a more direct approach - just use npx create-vite without version
-      command = command.replace(/npm create vite@latest|npx create-vite@latest/, 'npx create-vite');
-      logger.info(`🔧 Using direct create-vite command for better compatibility`);
-    }
-    
-    // Handle project names with spaces by adding quotes
-    const createViteMatch = command.match(/(npx create-vite@?\S*)\s+([^-]+)(.*)/);
-    if (createViteMatch) {
-      const [, createCmd, projectName, rest] = createViteMatch;
-      const cleanProjectName = projectName.trim();
-      
-      // If project name has spaces and isn't already quoted
-      if (cleanProjectName.includes(' ') && !cleanProjectName.startsWith('"')) {
-        command = `${createCmd} "${cleanProjectName}"${rest}`;
-        logger.info(`🔧 Quoted project name: "${cleanProjectName}"`);
+    // Replace npm create vite with degit approach
+    if (command.includes('npm create vite@latest') || command.includes('npx create-vite')) {
+      const projectNameMatch = command.match(/(?:npm create vite@latest|npx create-vite(?:@\S+)?)\s+([^\s-]+)/);
+      if (projectNameMatch) {
+        const projectName = projectNameMatch[1].replace(/['"]/g, ''); // Remove quotes
+        const newCommand = `npx degit vitejs/vite/examples/react-ts ${projectName}`;
+        logger.info(`🚀 Using degit for faster project creation: ${newCommand}`);
+        return newCommand;
       }
     }
     
@@ -420,7 +413,7 @@ export class CloudContainerManager {
 
     // Use the current working directory (could be project directory after creation)
     const baseDir = container.workingDir || container.projectDir;
-    const fullPath = this.resolvePath(filePath, baseDir);
+    const fullPath = this.resolvePath(containerId, filePath, baseDir);
     
     logger.info(`✏️ Writing file: ${filePath} to ${fullPath}`);
     
@@ -447,7 +440,7 @@ export class CloudContainerManager {
     if (dirPath === '/' || dirPath === '.') {
       targetDir = container.workingDir || container.projectDir;
     } else {
-      targetDir = this.resolvePath(dirPath, container.workingDir || container.projectDir);
+      targetDir = this.resolvePath(containerId, dirPath, container.workingDir || container.projectDir);
     }
     
     logger.info(`📁 Listing directory: ${dirPath} (resolved to: ${targetDir})`);

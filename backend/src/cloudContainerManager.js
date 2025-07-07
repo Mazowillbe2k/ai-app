@@ -81,6 +81,59 @@ export class CloudContainerManager {
     return this.containers.get(containerId);
   }
 
+  // Validate package.json exists and has required scripts
+  async validatePackageJson(containerId, command, workingDir = null) {
+    try {
+      const container = this.containers.get(containerId);
+      if (!container) {
+        throw new Error(`Container ${containerId} not found`);
+      }
+
+      const execDir = workingDir || container.workingDir || container.projectDir;
+      const packageJsonPath = path.join(execDir, 'package.json');
+      
+      // Check if package.json exists
+      if (!(await fs.pathExists(packageJsonPath))) {
+        return {
+          valid: false,
+          error: `package.json not found in ${execDir}. Project may not have been created successfully.`
+        };
+      }
+
+      // Read and parse package.json
+      const packageJson = await fs.readJson(packageJsonPath);
+      
+      // Extract script name from npm command
+      const scriptMatch = command.match(/npm run (\w+)|npm (\w+)/);
+      if (scriptMatch) {
+        const scriptName = scriptMatch[1] || scriptMatch[2];
+        
+        // Skip validation for standard npm commands
+        if (['install', 'ci', 'update', 'audit', 'version'].includes(scriptName)) {
+          return { valid: true };
+        }
+        
+        // Check if the script exists
+        if (!packageJson.scripts || !packageJson.scripts[scriptName]) {
+          const availableScripts = packageJson.scripts ? Object.keys(packageJson.scripts).join(', ') : 'none';
+          return {
+            valid: false,
+            error: `Script "${scriptName}" not found in package.json. Available scripts: ${availableScripts}`
+          };
+        }
+      }
+      
+      logger.info(`✅ Package validation passed for: ${command}`);
+      return { valid: true };
+      
+    } catch (error) {
+      return {
+        valid: false,
+        error: `Failed to validate package.json: ${error.message}`
+      };
+    }
+  }
+
   // Execute command in "container" (really just in the project directory)
   async executeInContainer(containerId, command, workingDir = null) {
     try {
@@ -89,16 +142,30 @@ export class CloudContainerManager {
         throw new Error(`Container ${containerId} not found`);
       }
 
-      const execDir = workingDir || container.projectDir;
+      const execDir = workingDir || container.workingDir || container.projectDir;
       logger.info(`🚀 Executing in cloud mode: ${command}`);
+      logger.info(`📁 Working directory: ${execDir}`);
       
       // Execute all safe commands directly - no more simulation
       if (this.isSafeCommand(command)) {
+        // Validate package.json for npm run commands
+        if (command.includes('npm run') || (command.includes('npm') && !command.includes('create') && !command.includes('install'))) {
+          const validation = await this.validatePackageJson(containerId, command, workingDir);
+          if (!validation.valid) {
+            logger.error(`❌ Package validation failed: ${validation.error}`);
+            return {
+              output: '',
+              error: validation.error,
+              exitCode: 1
+            };
+          }
+        }
+        
         // Create proper environment for npm commands
         const execOptions = { 
           cwd: execDir,
           maxBuffer: 10 * 1024 * 1024,
-          timeout: 120000, // 2 minute timeout for longer operations
+          timeout: 180000, // 3 minute timeout for npm create operations
           env: {
             ...process.env,
             HOME: execDir, // Set HOME to project directory to avoid permission issues
@@ -110,7 +177,20 @@ export class CloudContainerManager {
         // Ensure npm cache directory exists
         await fs.ensureDir(path.join(execDir, '.npm'));
         
+        logger.info(`⚙️ Executing with timeout: ${execOptions.timeout}ms`);
+        const startTime = Date.now();
+        
         const { stdout, stderr } = await execAsync(command, execOptions);
+        
+        const duration = Date.now() - startTime;
+        logger.info(`✅ Command completed in ${duration}ms`);
+        
+        if (stdout) {
+          logger.info(`📤 STDOUT: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}`);
+        }
+        if (stderr) {
+          logger.warn(`📤 STDERR: ${stderr.substring(0, 500)}${stderr.length > 500 ? '...' : ''}`);
+        }
         
         return {
           output: stdout,
@@ -120,6 +200,7 @@ export class CloudContainerManager {
       }
 
       // For unsafe commands, return error instead of simulation
+      logger.warn(`🚫 Command not allowed: ${command}`);
       return {
         output: '',
         error: `Command "${command}" is not allowed in cloud environment for security reasons`,
@@ -127,10 +208,17 @@ export class CloudContainerManager {
       };
       
     } catch (error) {
-      logger.error(`❌ Command failed: ${command}`, error.message);
+      logger.error(`❌ Command failed: ${command}`, {
+        message: error.message,
+        code: error.code,
+        signal: error.signal,
+        killed: error.killed,
+        timeout: error.timeout
+      });
+      
       return {
         output: '',
-        error: error.message,
+        error: `Command failed: ${error.message} (code: ${error.code || 'unknown'})`,
         exitCode: error.code || 1
       };
     }
@@ -366,6 +454,49 @@ export class CloudContainerManager {
     // In cloud mode, we can't run actual dev servers
     // Return a simulated URL or null
     return { url: null };
+  }
+
+  async getWorkingDirectory() {
+    return this.workingDir;
+  }
+
+  async setWorkingDirectory(dirPath) {
+    try {
+      // Update working directory
+      this.workingDir = dirPath.startsWith('/') ? dirPath : `/workspace/${dirPath}`;
+      return { success: true };
+    } catch (error) {
+      return { success: false, error: error.message };
+    }
+  }
+
+  // Set container working directory
+  async setContainerWorkingDirectory(containerId, dirPath) {
+    try {
+      const container = this.containers.get(containerId);
+      if (!container) {
+        throw new Error(`Container ${containerId} not found`);
+      }
+
+      // Resolve the new working directory path
+      const newWorkingDir = this.resolvePath(containerId, dirPath);
+      
+      // Verify the directory exists
+      if (!(await fs.pathExists(newWorkingDir))) {
+        throw new Error(`Directory does not exist: ${dirPath}`);
+      }
+      
+      // Update the container's working directory
+      container.workingDir = newWorkingDir;
+      this.containers.set(containerId, container);
+      
+      logger.info(`📁 Container ${containerId} working directory set to: ${newWorkingDir}`);
+      
+      return { success: true };
+    } catch (error) {
+      logger.error(`❌ Failed to set working directory: ${error.message}`);
+      return { success: false, error: error.message };
+    }
   }
 
   // Cleanup containers

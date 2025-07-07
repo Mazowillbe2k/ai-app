@@ -309,6 +309,31 @@ app.post('/api/container/cleanup', async (req, res) => {
   }
 });
 
+app.post('/api/container/set-working-dir', async (req, res) => {
+  try {
+    const { dirPath } = req.body;
+    console.log(`📂 Setting working directory: ${dirPath}`);
+    
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
+      return res.json({
+        success: false,
+        error: 'No active container found. Please initialize a container first.'
+      });
+    }
+    
+    const containerId = container.id || container;
+    const result = await containerManager.setContainerWorkingDirectory(containerId, dirPath);
+    res.json(result);
+  } catch (error) {
+    console.error('❌ Set working directory failed:', error);
+    res.json({
+      success: false,
+      error: error.message
+    });
+  }
+});
+
 // 404 handler
 app.use('*', (req, res) => {
   res.status(404).json({ 

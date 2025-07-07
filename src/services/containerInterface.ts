@@ -214,9 +214,22 @@ export class DockerContainerInterface implements ContainerInterface {
 
   async setWorkingDirectory(dirPath: string): Promise<{ success: boolean; error?: string }> {
     try {
-      // Update working directory
+      // Update local working directory
       this.workingDir = dirPath.startsWith('/') ? dirPath : `/workspace/${dirPath}`;
-      return { success: true };
+      
+      // Also update the container's working directory on the backend
+      const response = await fetch(`${this.baseUrl}/api/container/set-working-dir`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dirPath })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      return result;
     } catch (error: any) {
       return { success: false, error: error.message };
     }

@@ -18,6 +18,7 @@ RUN apt-get update && apt-get install -y \
     gnupg \
     lsb-release \
     unzip \
+    grep \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Node.js 18.x
@@ -27,10 +28,12 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 # Install Bun (fast JavaScript runtime and package manager)
 RUN curl -fsSL https://bun.sh/install | bash \
     && mv /root/.bun/bin/bun /usr/local/bin/bun \
-    && chmod +x /usr/local/bin/bun
+    && mv /root/.bun/bin/bunx /usr/local/bin/bunx \
+    && chmod +x /usr/local/bin/bun \
+    && chmod +x /usr/local/bin/bunx
 
-# Install degit globally for fast project scaffolding
-RUN npm install -g degit
+# Install degit and glob globally for fast project scaffolding and pattern matching
+RUN npm install -g degit glob
 
 # Install Docker CLI
 RUN mkdir -p /etc/apt/keyrings \

@@ -326,13 +326,17 @@ export class CloudContainerManager {
       '^pwd',
       '^which',
       '^git',
+      '^grep',
+      '^find',
       'npm (run|start|build|test|install|ci)',
       'npx.*create',
       'npx.*degit',
+      'npx.*glob',
       'cd.*&&.*npm',
       'cd.*&&.*bun',
       'cd.*&&.*yarn',
-      'bun (run|start|build|test|install|dev)'
+      'bun (run|start|build|test|install|dev)',
+      'grep.*\\.(js|ts|tsx|jsx|json|md|txt|css|html)'
     ];
     
     return safePatterns.some(pattern => 
@@ -347,7 +351,7 @@ export class CloudContainerManager {
       const projectNameMatch = command.match(/(?:npm create vite@latest|npx create-vite(?:@\S+)?)\s+([^\s]+?)(?:\s+--|$)/);
       if (projectNameMatch) {
         const projectName = projectNameMatch[1].replace(/['"]/g, ''); // Remove quotes
-        const newCommand = `npx degit vitejs/vite/examples/react-ts ${projectName}`;
+        const newCommand = `npx degit vitejs/vite/examples/react-ts ${projectName} --force`;
         logger.info(`🚀 Using degit for faster project creation: ${newCommand}`);
         return newCommand;
       }
@@ -362,6 +366,20 @@ export class CloudContainerManager {
         logger.info(`🔧 Simplified command by removing cd: ${actualCommand}`);
         return actualCommand;
       }
+    }
+
+    // Convert bun/bunx commands to npm equivalents if they fail
+    if (command.includes('bunx vite')) {
+      const fallbackCommand = command.replace('bunx vite', 'npx vite');
+      logger.info(`🔧 Converting bunx to npx: ${fallbackCommand}`);
+      return fallbackCommand;
+    }
+    
+    if (command.startsWith('bun run ')) {
+      const script = command.replace('bun run ', '');
+      const fallbackCommand = `npm run ${script}`;
+      logger.info(`🔧 Converting bun run to npm run: ${fallbackCommand}`);
+      return fallbackCommand;
     }
     
     return command;
@@ -613,12 +631,29 @@ export class CloudContainerManager {
         throw new Error(`Container ${containerId} not found`);
       }
 
-      // Resolve the new working directory path
-      const newWorkingDir = this.resolvePath(containerId, dirPath);
+      // Handle both absolute and relative paths
+      let newWorkingDir;
+      if (path.isAbsolute(dirPath)) {
+        newWorkingDir = dirPath;
+      } else {
+        // For relative paths, check both current working dir and workspace root
+        const relativeToWorkspace = path.join(this.workspaceDir, dirPath);
+        const relativeToContainer = path.join(container.workingDir || this.workspaceDir, dirPath);
+        
+        // Check which one exists
+        if (await fs.pathExists(relativeToWorkspace)) {
+          newWorkingDir = relativeToWorkspace;
+        } else if (await fs.pathExists(relativeToContainer)) {
+          newWorkingDir = relativeToContainer;
+        } else {
+          // Default to workspace-relative
+          newWorkingDir = relativeToWorkspace;
+        }
+      }
       
       // Verify the directory exists
       if (!(await fs.pathExists(newWorkingDir))) {
-        throw new Error(`Directory does not exist: ${dirPath}`);
+        throw new Error(`Directory does not exist: ${dirPath} (resolved to: ${newWorkingDir})`);
       }
       
       // Update the container's working directory

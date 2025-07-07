@@ -133,7 +133,7 @@ app.post('/api/container/write', async (req, res) => {
     }
     
     const containerId = container.id || container;
-    const result = await containerManager.writeFileToContainer(containerId, filePath, content, workingDir);
+    const result = await containerManager.writeFile(containerId, filePath, content);
     res.json(result);
   } catch (error) {
     console.error('❌ File write failed:', error);
@@ -158,7 +158,7 @@ app.post('/api/container/list', async (req, res) => {
     }
     
     const containerId = container.id || container;
-    const result = await containerManager.listDirectoryInContainer(containerId, dirPath, workingDir);
+    const result = await containerManager.listDirectory(containerId, dirPath);
     res.json(result);
   } catch (error) {
     console.error('❌ Directory listing failed:', error);

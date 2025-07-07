@@ -171,7 +171,7 @@ export class CloudContainerManager {
         const execOptions = { 
           cwd: execDir,
           maxBuffer: 10 * 1024 * 1024,
-          timeout: 180000, // 3 minute timeout for npm create operations
+          timeout: 60000, // 1 minute timeout - more reasonable for cloud
           env: {
             ...process.env,
             HOME: execDir, // Set HOME to project directory to avoid permission issues
@@ -254,6 +254,9 @@ export class CloudContainerManager {
       
       logger.info(`🔧 Setting up project: ${projectName} at ${projectPath}`);
       
+      // Wait a bit for file system to settle
+      await new Promise(resolve => setTimeout(resolve, 2000));
+      
       // Check if project directory was created
       if (await fs.pathExists(projectPath)) {
         // Update container working directory to the project
@@ -263,12 +266,12 @@ export class CloudContainerManager {
         
         logger.info(`📁 Updated container working directory to: ${projectPath}`);
         
-        // Install dependencies
+        // Install dependencies with shorter timeout
         logger.info(`📦 Installing dependencies for ${projectName}...`);
         const installOptions = {
           cwd: projectPath,
           maxBuffer: 10 * 1024 * 1024,
-          timeout: 180000,
+          timeout: 60000, // 1 minute for npm install
           env: {
             ...process.env,
             HOME: projectPath,
@@ -284,6 +287,16 @@ export class CloudContainerManager {
           logger.info(`📤 Install output: ${installStdout.substring(0, 300)}...`);
         } catch (installError) {
           logger.error(`❌ Failed to install dependencies: ${installError.message}`);
+          
+          // Try with --force flag as fallback
+          try {
+            logger.info(`🔄 Retrying npm install with --force...`);
+            const { stdout: forceInstallStdout } = await execAsync('npm install --force', installOptions);
+            logger.info(`✅ Dependencies installed with --force`);
+            logger.info(`📤 Force install output: ${forceInstallStdout.substring(0, 300)}...`);
+          } catch (forceError) {
+            logger.error(`❌ Force install also failed: ${forceError.message}`);
+          }
         }
       } else {
         logger.error(`❌ Project directory not found: ${projectPath}`);
@@ -328,10 +341,10 @@ export class CloudContainerManager {
   // Enhanced command preprocessing for compatibility
   preprocessCommand(command) {
     // Handle Node.js version compatibility for create-vite
-    if (command.includes('npm create vite@latest')) {
-      // Use compatible version for Node.js 18
-      command = command.replace('npm create vite@latest', 'npx create-vite@4.4.1');
-      logger.info(`🔧 Using compatible create-vite version for Node.js 18`);
+    if (command.includes('npm create vite@latest') || command.includes('npx create-vite@latest')) {
+      // Use a more direct approach - just use npx create-vite without version
+      command = command.replace(/npm create vite@latest|npx create-vite@latest/, 'npx create-vite');
+      logger.info(`🔧 Using direct create-vite command for better compatibility`);
     }
     
     // Handle project names with spaces by adding quotes

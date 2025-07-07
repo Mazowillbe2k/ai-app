@@ -92,18 +92,13 @@ export class CloudContainerManager {
       const execDir = workingDir || container.projectDir;
       logger.info(`🚀 Executing in cloud mode: ${command}`);
       
-      // For cloud mode, we'll simulate some commands and execute safe ones
-      if (this.isSimulatedCommand(command)) {
-        return this.simulateCommand(command);
-      }
-
-      // Execute safe commands directly
+      // Execute all safe commands directly - no more simulation
       if (this.isSafeCommand(command)) {
         // Create proper environment for npm commands
         const execOptions = { 
           cwd: execDir,
           maxBuffer: 10 * 1024 * 1024,
-          timeout: 60000, // 1 minute timeout in cloud
+          timeout: 120000, // 2 minute timeout for longer operations
           env: {
             ...process.env,
             HOME: execDir, // Set HOME to project directory to avoid permission issues
@@ -124,8 +119,12 @@ export class CloudContainerManager {
         };
       }
 
-      // For unsafe commands, return simulation
-      return this.simulateCommand(command);
+      // For unsafe commands, return error instead of simulation
+      return {
+        output: '',
+        error: `Command "${command}" is not allowed in cloud environment for security reasons`,
+        exitCode: 1
+      };
       
     } catch (error) {
       logger.error(`❌ Command failed: ${command}`, error.message);
@@ -137,77 +136,36 @@ export class CloudContainerManager {
     }
   }
 
-  // Check if command should be simulated
-  isSimulatedCommand(command) {
-    const simulatedPatterns = [
-      'apt-get',
-      'docker',
-      'curl.*setup.*bash',
-      'netstat',
-      'systemctl'
-    ];
-    
-    return simulatedPatterns.some(pattern => 
-      new RegExp(pattern).test(command)
-    );
-  }
-
-  // Check if command is safe to execute
+  // Check if command is safe to execute - expanded list for proper development
   isSafeCommand(command) {
     const safePatterns = [
       '^npm',
       '^npx',
       '^node',
+      '^bun',
+      '^yarn',
+      '^pnpm',
       '^ls',
       '^cat',
       '^echo',
       '^mkdir',
       '^touch',
       '^cp',
-      '^mv'
+      '^mv',
+      '^cd ',
+      '^pwd',
+      '^which',
+      '^git',
+      'npm (run|start|build|test|install|ci)',
+      'npx.*create',
+      'cd.*&&.*npm',
+      'cd.*&&.*bun',
+      'cd.*&&.*yarn'
     ];
     
     return safePatterns.some(pattern => 
       new RegExp(pattern).test(command.trim())
     );
-  }
-
-  // Simulate commands that can't be run in cloud
-  simulateCommand(command) {
-    logger.info(`🎭 Simulating command: ${command}`);
-    
-    if (command.includes('npm create') || command.includes('npx create')) {
-      return {
-        output: `✓ Project created successfully in cloud mode\n✓ Dependencies would be installed`,
-        exitCode: 0
-      };
-    }
-    
-    if (command.includes('npm install')) {
-      return {
-        output: `added 234 packages in 12s (simulated)`,
-        exitCode: 0
-      };
-    }
-    
-    if (command.includes('npm run dev') || command.includes('npm start')) {
-      return {
-        output: `> dev server would be running (simulated)`,
-        exitCode: 0
-      };
-    }
-
-    if (command.includes('apt-get')) {
-      return {
-        output: `Simulated: ${command}\nPackages would be installed in real Docker container`,
-        exitCode: 0
-      };
-    }
-    
-    return {
-      output: `Simulated: ${command}`,
-      exitCode: 0
-    };
   }
 
   // Helper function to resolve file path within container

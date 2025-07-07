@@ -19,41 +19,195 @@ export class ToolExecutionService {
 
   async executeTool(toolName: string, parameters: any): Promise<ToolResult> {
     try {
+      // Validate parameters exist
+      if (!parameters || typeof parameters !== 'object') {
+        return {
+          success: false,
+          output: '',
+          error: `Tool '${toolName}' requires parameters but none were provided`
+        };
+      }
+
       switch (toolName) {
         case 'startup':
-          return await this.startup(parameters);
+          // Map various parameter names the AI might use to expected ones
+          const startupParams = {
+            project_name: parameters.project_name || parameters.name || parameters.template || 'my-app',
+            framework: this.mapFramework(parameters.framework || parameters.lang || parameters.language || parameters.template_type || 'react-vite'),
+            shadcn_theme: parameters.shadcn_theme || parameters.theme || parameters.style || 'default'
+          };
+          
+          console.log(`🚀 Mapped startup parameters:`, startupParams);
+          return await this.startup(startupParams);
+          
         case 'task_agent':
-          return await this.taskAgent(parameters);
+          const taskParams = this.mapTaskAgentParams(parameters);
+          console.log(`🤖 Mapped task_agent parameters:`, taskParams);
+          return await this.taskAgent(taskParams);
+          
         case 'bash':
-          return await this.bash(parameters);
+          const bashParams = {
+            command: parameters.command || parameters.cmd || parameters.exec || '',
+            starting_server: parameters.starting_server || parameters.start_server || parameters.server || false,
+            require_user_interaction: parameters.require_user_interaction || parameters.interaction || ''
+          };
+          
+          if (!bashParams.command) {
+            return {
+              success: false,
+              output: '',
+              error: `bash tool needs a command to execute. Got: ${JSON.stringify(parameters)}`
+            };
+          }
+          
+          console.log(`💻 Mapped bash parameters:`, bashParams);
+          return await this.bash(bashParams);
+          
         case 'ls':
-          return await this.ls(parameters);
+          const lsParams = {
+            relative_dir_path: parameters.relative_dir_path || parameters.path || parameters.directory || parameters.dir || '.'
+          };
+          return await this.ls(lsParams);
+          
         case 'glob':
+          if (!parameters.pattern) {
+            return {
+              success: false,
+              output: '',
+              error: `glob tool requires: pattern (string), exclude_pattern (string). Got: ${JSON.stringify(parameters)}`
+            };
+          }
+          parameters.exclude_pattern = parameters.exclude_pattern || '';
           return await this.glob(parameters);
+          
         case 'grep':
+          if (!parameters.query) {
+            return {
+              success: false,
+              output: '',
+              error: `grep tool requires: query (string), case_sensitive (boolean), include_pattern (string), exclude_pattern (string). Got: ${JSON.stringify(parameters)}`
+            };
+          }
+          parameters.case_sensitive = parameters.case_sensitive || false;
+          parameters.include_pattern = parameters.include_pattern || '';
+          parameters.exclude_pattern = parameters.exclude_pattern || '';
           return await this.grep(parameters);
+          
         case 'read_file':
-          return await this.readFile(parameters);
+          const readParams = {
+            relative_file_path: parameters.relative_file_path || parameters.file_path || parameters.path || parameters.file || '',
+            should_read_entire_file: parameters.should_read_entire_file !== false,
+            start_line_one_indexed: parameters.start_line_one_indexed || parameters.start_line,
+            end_line_one_indexed: parameters.end_line_one_indexed || parameters.end_line
+          };
+          
+          if (!readParams.relative_file_path) {
+            return {
+              success: false,
+              output: '',
+              error: `read_file tool needs a file path. Got: ${JSON.stringify(parameters)}`
+            };
+          }
+          
+          return await this.readFile(readParams);
+          
         case 'delete_file':
+          if (!parameters.relative_file_path) {
+            return {
+              success: false,
+              output: '',
+              error: `delete_file tool requires: relative_file_path (string). Got: ${JSON.stringify(parameters)}`
+            };
+          }
           return await this.deleteFile(parameters);
+          
         case 'edit_file':
-          return await this.editFile(parameters);
+          const editParams = this.mapEditFileParams(parameters);
+          
+          if (!editParams.relative_file_path) {
+            return {
+              success: false,
+              output: '',
+              error: `edit_file tool needs a file path. Got: ${JSON.stringify(parameters)}`
+            };
+          }
+          
+          if (!editParams.code_edit || editParams.code_edit.trim() === '') {
+            return {
+              success: false,
+              output: '',
+              error: `edit_file tool needs actual code content in the 'code_edit' parameter. AI should provide the complete file content, not empty strings. Got: ${JSON.stringify(parameters)}`
+            };
+          }
+          
+          console.log(`✏️ Mapped edit_file parameters:`, editParams);
+          return await this.editFile(editParams);
+          
         case 'string_replace':
+          if (!parameters.relative_file_path || !parameters.old_string || !parameters.new_string) {
+            return {
+              success: false,
+              output: '',
+              error: `string_replace tool requires: relative_file_path (string), old_string (string), new_string (string), replace_all (boolean). Got: ${JSON.stringify(parameters)}`
+            };
+          }
+          parameters.replace_all = parameters.replace_all || false;
           return await this.stringReplace(parameters);
+          
         case 'run_linter':
-          return await this.runLinter(parameters);
+          const linterParams = {
+            project_directory: parameters.project_directory || parameters.project || parameters.dir || parameters.directory || 'my-app',
+            package_manager: parameters.package_manager || parameters.manager || 'npm'
+          };
+          console.log(`🧹 Mapped run_linter parameters:`, linterParams);
+          return await this.runLinter(linterParams);
+          
         case 'versioning':
-          return await this.versioning(parameters);
+          const versionParams = this.mapVersioningParams(parameters);
+          console.log(`📦 Mapped versioning parameters:`, versionParams);
+          return await this.versioning(versionParams);
+          
         case 'suggestions':
+          if (!parameters.suggestions || !Array.isArray(parameters.suggestions)) {
+            return {
+              success: false,
+              output: '',
+              error: `suggestions tool requires: suggestions (string[]). Got: ${JSON.stringify(parameters)}`
+            };
+          }
           return await this.suggestions(parameters);
+          
         case 'deploy':
-          return await this.deploy(parameters);
+          const deployParams = this.mapDeployParams(parameters);
+          console.log(`🚀 Mapped deploy parameters:`, deployParams);
+          return await this.deploy(deployParams);
+          
         case 'web_search':
+          if (!parameters.search_term) {
+            return {
+              success: false,
+              output: '',
+              error: `web_search tool requires: search_term (string). Got: ${JSON.stringify(parameters)}`
+            };
+          }
           return await this.webSearch(parameters);
+          
         case 'web_scrape':
+          if (!parameters.url) {
+            return {
+              success: false,
+              output: '',
+              error: `web_scrape tool requires: url (string), selector (optional string). Got: ${JSON.stringify(parameters)}`
+            };
+          }
           return await this.webScrape(parameters);
+          
         default:
-          throw new Error(`Unknown tool: ${toolName}`);
+          return {
+            success: false,
+            output: '',
+            error: `Unknown tool: ${toolName}. Available tools: startup, task_agent, bash, ls, glob, grep, read_file, delete_file, edit_file, string_replace, run_linter, versioning, suggestions, deploy, web_search, web_scrape`
+          };
       }
     } catch (error) {
       return {
@@ -493,6 +647,89 @@ export class ToolExecutionService {
         suggestionCount: suggestions.length,
         suggestions
       }
+    };
+  }
+
+  private mapFramework(framework: string): string {
+    const fw = framework.toLowerCase();
+    
+    // Map common AI variations to actual framework names
+    if (fw.includes('typescript') || fw === 'ts') {
+      return 'react-vite'; // Default TypeScript to React + Vite
+    }
+    if (fw.includes('react') && fw.includes('shadcn')) {
+      return 'react-vite-shadcn';
+    }
+    if (fw.includes('react') && fw.includes('tailwind')) {
+      return 'react-vite-tailwind';
+    }
+    if (fw.includes('react')) {
+      return 'react-vite';
+    }
+    if (fw.includes('next')) {
+      return 'nextjs-shadcn';
+    }
+    if (fw.includes('vue')) {
+      return 'vue-vite';
+    }
+    if (fw.includes('html')) {
+      return 'html-ts-css';
+    }
+    
+    // Direct matches
+    const directMappings: Record<string, string> = {
+      'react-vite': 'react-vite',
+      'react-vite-tailwind': 'react-vite-tailwind', 
+      'react-vite-shadcn': 'react-vite-shadcn',
+      'nextjs-shadcn': 'nextjs-shadcn',
+      'vue-vite': 'vue-vite',
+      'vue-vite-tailwind': 'vue-vite-tailwind',
+      'html-ts-css': 'html-ts-css'
+    };
+    
+    return directMappings[fw] || 'react-vite'; // Default
+  }
+
+  private mapEditFileParams(parameters: any): any {
+    return {
+      relative_file_path: parameters.relative_file_path || parameters.file_path || parameters.path || parameters.file,
+      instructions: parameters.instructions || parameters.description || parameters.action || 'Editing file',
+      code_edit: parameters.code_edit || parameters.content || parameters.code || parameters.body || '',
+      smart_apply: parameters.smart_apply || false
+    };
+  }
+
+  private mapTaskAgentParams(parameters: any): any {
+    return {
+      prompt: parameters.prompt || parameters.description || parameters.task || '',
+      integrations: parameters.integrations || parameters.tools || parameters.services || [],
+      relative_file_paths: parameters.relative_file_paths || parameters.files || parameters.file_paths || []
+    };
+  }
+
+  private mapVersioningParams(parameters: any): any {
+    // Handle changelog - convert string to array if needed
+    let changelog = parameters.version_changelog || parameters.changelog || parameters.changes || [];
+    if (typeof changelog === 'string') {
+      changelog = [changelog]; // Convert string to single-item array
+    }
+    if (!Array.isArray(changelog)) {
+      changelog = [];
+    }
+    
+    return {
+      project_directory: parameters.project_directory || parameters.project || parameters.dir || parameters.directory || 'my-app',
+      version_title: parameters.version_title || parameters.title || parameters.name || 'New Version',
+      version_changelog: changelog,
+      version_number: parameters.version_number || parameters.version || '1.0.0'
+    };
+  }
+
+  private mapDeployParams(parameters: any): any {
+    return {
+      project_directory: parameters.project_directory || parameters.project || parameters.dir || parameters.directory || 'my-app',
+      platform: parameters.platform || parameters.service || parameters.host || 'netlify',
+      config: parameters.config || parameters.options || {}
     };
   }
 }

@@ -99,48 +99,12 @@ export default function ChatInterface() {
   }, [addAgentThought, addAgentAction, addToolExecution]);
 
   const parseAppIdea = (description: string): AppIdea => {
-    const features = [];
-    const lowerDesc = description.toLowerCase();
-    
-    // Feature detection
-    if (lowerDesc.includes('auth') || lowerDesc.includes('login') || lowerDesc.includes('user')) {
-      features.push('authentication');
-    }
-    if (lowerDesc.includes('dashboard') || lowerDesc.includes('admin')) {
-      features.push('dashboard');
-    }
-    if (lowerDesc.includes('api') || lowerDesc.includes('data') || lowerDesc.includes('backend')) {
-      features.push('api');
-    }
-    if (lowerDesc.includes('task') || lowerDesc.includes('todo') || lowerDesc.includes('productivity')) {
-      features.push('productivity');
-    }
-    if (lowerDesc.includes('chart') || lowerDesc.includes('analytics') || lowerDesc.includes('report')) {
-      features.push('analytics');
-    }
-
-    // Category detection
-    let category: AppIdea['category'] = 'utility';
-    if (lowerDesc.includes('business') || lowerDesc.includes('management') || lowerDesc.includes('crm')) {
-      category = 'business';
-    } else if (lowerDesc.includes('productivity') || lowerDesc.includes('task')) {
-      category = 'productivity';
-    }
-
-    // Complexity detection
-    let complexity: AppIdea['complexity'] = 'medium';
-    if (features.length <= 2) {
-      complexity = 'simple';
-    } else if (features.length >= 5) {
-      complexity = 'complex';
-    }
-
     return {
-      description,
-      features: features.length > 0 ? features : ['dashboard', 'responsive-design'],
-      category,
-      complexity,
+      description: description.trim(),
+      features: [],
       framework: 'react',
+      complexity: 'medium',
+      category: 'utility',
       styling: 'tailwind'
     };
   };
@@ -363,10 +327,10 @@ export default function ChatInterface() {
       // Set WebContainer preview URL - poll until available
       const checkForPreviewUrl = async () => {
         try {
-          const containerPreviewUrl = await agenticAI.getWebContainerPreviewUrl();
-          if (containerPreviewUrl) {
-            setPreviewUrl(containerPreviewUrl);
-            console.log(`🌐 WebContainer preview available: ${containerPreviewUrl}`);
+          const previewUrl = await agenticAI.getDockerPreviewUrl();
+          if (previewUrl) {
+            setPreviewUrl(previewUrl);
+            console.log(`🌐 WebContainer preview available: ${previewUrl}`);
             return true; // Found the URL
           }
         } catch (error) {

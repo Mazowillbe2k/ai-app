@@ -1,7 +1,12 @@
 import fetch from 'node-fetch';
 
-const RENDER_API_KEY = 'rnd_IVS11nXDAr4bh3BrdWa20ff6p0iy';
+const RENDER_API_KEY = process.env.RENDER_API_KEY;
 const RENDER_API_BASE = 'https://api.render.com/v1';
+
+if (!RENDER_API_KEY) {
+  console.error('🔑 RENDER_API_KEY environment variable is required');
+  process.exit(1);
+}
 
 console.log('🚀 Deploying AI Agent Backend to Render...');
 

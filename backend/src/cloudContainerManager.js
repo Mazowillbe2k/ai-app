@@ -345,17 +345,14 @@ export class CloudContainerManager {
     );
   }
 
-  // Convert create-vite commands to use degit for faster, more reliable project creation
+  // Keep npm create vite as-is for complete project setup
   preprocessCommand(command) {
-    // Replace npm create vite with degit approach
+    // Don't convert npm create vite - let it run normally for complete setup
+    // Just ensure proper template and yes flag
     if (command.includes('npm create vite@latest') || command.includes('npx create-vite')) {
-      const projectNameMatch = command.match(/(?:npm create vite@latest|npx create-vite(?:@\S+)?)\s+([^\s]+?)(?:\s+--|$)/);
-      if (projectNameMatch) {
-        const projectName = projectNameMatch[1].replace(/['"]/g, ''); // Remove quotes
-        const newCommand = `npx degit vitejs/vite/examples/react-ts ${projectName} --force`;
-        logger.info(`🚀 Using degit for faster project creation: ${newCommand}`);
-        return newCommand;
-      }
+      // Let the original command run to get complete Vite setup
+      logger.info(`🚀 Using official Vite create for complete project setup: ${command}`);
+      return command;
     }
     
     // Handle cd commands that reference /home/project/ paths - remove the cd part since we manage working directory

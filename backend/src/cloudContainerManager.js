@@ -23,7 +23,8 @@ const logger = winston.createLogger({
 export class CloudContainerManager {
   constructor() {
     this.containers = new Map(); // Store active "containers" (really just project directories)
-    this.workspaceDir = path.resolve('./workspace');
+    // In cloud environment, we're already in /workspace directory
+    this.workspaceDir = process.env.NODE_ENV === 'production' ? '/workspace' : path.resolve('./workspace');
     this.isCloudMode = true;
     this.ensureWorkspaceExists();
   }

@@ -184,28 +184,48 @@ export class CloudContainerManager {
         logger.info(`⚙️ Executing with timeout: ${execOptions.timeout}ms`);
         const startTime = Date.now();
         
-        const { stdout, stderr } = await execAsync(processedCommand, execOptions);
-        
-        const duration = Date.now() - startTime;
-        logger.info(`✅ Command completed in ${duration}ms`);
-        
-        if (stdout) {
-          logger.info(`📤 STDOUT: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}`);
-        }
-        if (stderr) {
-          logger.warn(`📤 STDERR: ${stderr.substring(0, 500)}${stderr.length > 500 ? '...' : ''}`);
-        }
+        try {
+          const { stdout, stderr } = await execAsync(processedCommand, execOptions);
+          
+          const duration = Date.now() - startTime;
+          logger.info(`✅ Command completed in ${duration}ms`);
+          
+          if (stdout) {
+            logger.info(`📤 STDOUT: ${stdout.substring(0, 500)}${stdout.length > 500 ? '...' : ''}`);
+          }
+          if (stderr) {
+            logger.warn(`📤 STDERR: ${stderr.substring(0, 500)}${stderr.length > 500 ? '...' : ''}`);
+          }
 
-        // Handle post-creation setup for project creation commands
-        if (processedCommand.includes('create-vite') || processedCommand.includes('create vite') || processedCommand.includes('degit')) {
-          await this.handlePostProjectCreation(containerId, processedCommand, execDir);
+          // Handle post-creation setup for project creation commands
+          if (processedCommand.includes('create-vite') || processedCommand.includes('create vite') || processedCommand.includes('degit')) {
+            await this.handlePostProjectCreation(containerId, processedCommand, execDir);
+          }
+          
+          return {
+            output: stdout,
+            error: stderr || undefined,
+            exitCode: 0
+          };
+        } catch (commandError) {
+          // Check if this is a Vite creation command that failed due to Node.js version
+          if (command.includes('create vite') && commandError.message.includes('EBADENGINE')) {
+            logger.info(`🔄 Vite creation failed due to Node.js version, trying degit fallback...`);
+            
+            // Try degit approach first - more reliable than manual creation
+            const degitFallback = await this.tryDegitFallback(containerId, command, execDir);
+            if (degitFallback.exitCode === 0) {
+              return degitFallback;
+            }
+            
+            // If degit also fails, try manual project creation approach
+            logger.info(`🔄 Degit fallback failed, trying manual project creation...`);
+            return await this.createProjectManually(containerId, command, execDir);
+          }
+          
+          // For other errors, re-throw to be handled by outer catch
+          throw commandError;
         }
-        
-        return {
-          output: stdout,
-          error: stderr || undefined,
-          exitCode: 0
-        };
       }
 
       // For unsafe commands, return error instead of simulation
@@ -227,10 +247,265 @@ export class CloudContainerManager {
       
       return {
         output: '',
-        error: `Command failed: ${error.message} (code: ${error.code || 'unknown'})`,
+        error: `Command failed: ${command} ${error.message}`,
         exitCode: error.code || 1
       };
     }
+  }
+
+  // Try degit fallback when create-vite fails
+  async tryDegitFallback(containerId, originalCommand, execDir) {
+    try {
+      logger.info(`🔧 Attempting degit fallback for failed create-vite command...`);
+      
+      // Extract project name and template from original command
+      const projectNameMatch = originalCommand.match(/create-vite@?\S*\s+"?([^"\s]+)"?/);
+      const templateMatch = originalCommand.match(/--template\s+([^\s]+)/);
+      
+      const projectName = projectNameMatch ? projectNameMatch[1] : 'TodoApp';
+      const template = templateMatch ? templateMatch[1] : 'react-ts';
+      
+      // Get appropriate degit template
+      const degitTemplate = this.getDegitTemplate(template);
+      const degitCommand = `npx degit ${degitTemplate} ${projectName}`;
+      
+      logger.info(`🚀 Executing degit command: ${degitCommand}`);
+      
+      // Execute degit command
+      const execOptions = {
+        cwd: execDir,
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: 60000,
+        env: {
+          ...process.env,
+          HOME: execDir,
+          npm_config_cache: path.join(execDir, '.npm'),
+          npm_config_prefix: execDir
+        }
+      };
+      
+      await fs.ensureDir(path.join(execDir, '.npm'));
+      
+      const { stdout, stderr } = await execAsync(degitCommand, execOptions);
+      
+      logger.info(`✅ Degit command completed successfully`);
+      
+      // Handle post-creation setup
+      await this.handlePostProjectCreation(containerId, degitCommand, execDir);
+      
+      return {
+        output: `Successfully created ${projectName} using degit\n${stdout}`,
+        error: stderr || undefined,
+        exitCode: 0
+      };
+      
+    } catch (error) {
+      logger.error(`❌ Degit fallback failed: ${error.message}`);
+      return {
+        output: '',
+        error: `Degit fallback failed: ${error.message}`,
+        exitCode: 1
+      };
+    }
+  }
+
+  // Manual project creation fallback when automated tools fail
+  async createProjectManually(containerId, originalCommand, execDir) {
+    try {
+      logger.info(`🛠️ Creating React TypeScript project manually...`);
+      
+      // Extract project name from original command
+      let projectName = 'TodoApp'; // default
+      const nameMatch = originalCommand.match(/create[^"]*\s+"?([^"\s]+)"?/);
+      if (nameMatch) {
+        projectName = nameMatch[1];
+      }
+      
+      const projectPath = path.join(execDir, projectName);
+      await fs.ensureDir(projectPath);
+      
+      // Create package.json
+      const packageJson = {
+        name: projectName.toLowerCase(),
+        private: true,
+        version: "0.0.0",
+        type: "module",
+        scripts: {
+          dev: "vite",
+          build: "tsc && vite build",
+          lint: "eslint . --ext ts,tsx --report-unused-disable-directives --max-warnings 0",
+          preview: "vite preview"
+        },
+        dependencies: {
+          react: "^18.2.0",
+          "react-dom": "^18.2.0"
+        },
+        devDependencies: {
+          "@types/react": "^18.2.43",
+          "@types/react-dom": "^18.2.17",
+          "@typescript-eslint/eslint-plugin": "^6.14.0",
+          "@typescript-eslint/parser": "^6.14.0",
+          "@vitejs/plugin-react": "^4.2.1",
+          eslint: "^8.55.0",
+          "eslint-plugin-react-hooks": "^4.6.0",
+          "eslint-plugin-react-refresh": "^0.4.5",
+          typescript: "^5.2.2",
+          vite: "^4.5.0"
+        }
+      };
+      
+      await fs.writeJson(path.join(projectPath, 'package.json'), packageJson, { spaces: 2 });
+      
+      // Create basic project structure
+      await this.createBasicReactStructure(projectPath);
+      
+      // Update container working directory
+      const container = this.containers.get(containerId);
+      container.workingDir = projectPath;
+      this.containers.set(containerId, container);
+      
+      logger.info(`✅ Manual project creation completed: ${projectName}`);
+      
+      return {
+        output: `Successfully created ${projectName} project manually`,
+        error: undefined,
+        exitCode: 0
+      };
+      
+    } catch (error) {
+      logger.error(`❌ Manual project creation failed: ${error.message}`);
+      return {
+        output: '',
+        error: `Manual project creation failed: ${error.message}`,
+        exitCode: 1
+      };
+    }
+  }
+
+  // Create basic React TypeScript project structure
+  async createBasicReactStructure(projectPath) {
+    // Create directories
+    await fs.ensureDir(path.join(projectPath, 'src'));
+    await fs.ensureDir(path.join(projectPath, 'public'));
+    
+    // Create index.html
+    const indexHtml = `<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vite + React + TS</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>`;
+    await fs.writeFile(path.join(projectPath, 'index.html'), indexHtml);
+    
+    // Create vite.config.ts
+    const viteConfig = `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+// https://vitejs.dev/config/
+export default defineConfig({
+  plugins: [react()],
+})`;
+    await fs.writeFile(path.join(projectPath, 'vite.config.ts'), viteConfig);
+    
+    // Create tsconfig.json
+    const tsConfig = {
+      compilerOptions: {
+        target: "ES2020",
+        useDefineForClassFields: true,
+        lib: ["ES2020", "DOM", "DOM.Iterable"],
+        module: "ESNext",
+        skipLibCheck: true,
+        moduleResolution: "bundler",
+        allowImportingTsExtensions: true,
+        resolveJsonModule: true,
+        isolatedModules: true,
+        noEmit: true,
+        jsx: "react-jsx",
+        strict: true,
+        noUnusedLocals: true,
+        noUnusedParameters: true,
+        noFallthroughCasesInSwitch: true
+      },
+      include: ["src"],
+      references: [{ path: "./tsconfig.node.json" }]
+    };
+    await fs.writeJson(path.join(projectPath, 'tsconfig.json'), tsConfig, { spaces: 2 });
+    
+    // Create basic React components
+    const mainTsx = `import React from 'react'
+import ReactDOM from 'react-dom/client'
+import App from './App.tsx'
+import './index.css'
+
+ReactDOM.createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>,
+)`;
+    await fs.writeFile(path.join(projectPath, 'src', 'main.tsx'), mainTsx);
+    
+    const appTsx = `import { useState } from 'react'
+import reactLogo from './assets/react.svg'
+import viteLogo from '/vite.svg'
+import './App.css'
+
+function App() {
+  const [count, setCount] = useState(0)
+
+  return (
+    <>
+      <div>
+        <a href="https://vitejs.dev" target="_blank">
+          <img src={viteLogo} className="logo" alt="Vite logo" />
+        </a>
+        <a href="https://react.dev" target="_blank">
+          <img src={reactLogo} className="logo react" alt="React logo" />
+        </a>
+      </div>
+      <h1>Vite + React</h1>
+      <div className="card">
+        <button onClick={() => setCount((count) => count + 1)}>
+          count is {count}
+        </button>
+        <p>
+          Edit <code>src/App.tsx</code> and save to test HMR
+        </p>
+      </div>
+      <p className="read-the-docs">
+        Click on the Vite and React logos to learn more
+      </p>
+    </>
+  )
+}
+
+export default App`;
+    await fs.writeFile(path.join(projectPath, 'src', 'App.tsx'), appTsx);
+    
+    // Create basic CSS files
+    const indexCss = `body {
+  margin: 0;
+  display: flex;
+  place-items: center;
+  min-width: 320px;
+  min-height: 100vh;
+}
+
+#root {
+  max-width: 1280px;
+  margin: 0 auto;
+  padding: 2rem;
+  text-align: center;
+}`;
+    await fs.writeFile(path.join(projectPath, 'src', 'index.css'), indexCss);
+    
+    logger.info(`📁 Created basic React TypeScript project structure`);
   }
 
   // Handle post project creation setup
@@ -345,14 +620,54 @@ export class CloudContainerManager {
     );
   }
 
-  // Keep npm create vite as-is for complete project setup
+  // Enhanced command preprocessing with fallback strategies
   preprocessCommand(command) {
-    // Don't convert npm create vite - let it run normally for complete setup
-    // Just ensure proper template and yes flag
-    if (command.includes('npm create vite@latest') || command.includes('npx create-vite')) {
-      // Let the original command run to get complete Vite setup
-      logger.info(`🚀 Using official Vite create for complete project setup: ${command}`);
-      return command;
+    // Handle npm create vite with degit fallback for Node.js compatibility
+    if (command.includes('npm create vite@latest') || command.includes('npx create-vite@latest')) {
+      // Check Node.js version and provide fallback strategies
+      const nodeVersion = process.version;
+      const majorVersion = parseInt(nodeVersion.split('.')[0].slice(1));
+      
+      if (majorVersion < 20) {
+        // Extract project name and template from original command
+        const projectNameMatch = command.match(/create-vite@?\S*\s+"?([^"\s]+)"?/);
+        const templateMatch = command.match(/--template\s+([^\s]+)/);
+        
+        const projectName = projectNameMatch ? projectNameMatch[1] : 'my-vite-app';
+        const template = templateMatch ? templateMatch[1] : 'react-ts';
+        
+        // Use degit as primary fallback - it's more reliable in cloud environments
+        const degitTemplate = this.getDegitTemplate(template);
+        const degitCommand = `npx degit ${degitTemplate} ${projectName}`;
+        
+        logger.info(`🔧 Using degit fallback for Node.js ${nodeVersion}: ${degitCommand}`);
+        return degitCommand;
+      } else {
+        // Let the original command run for Node 20+
+        logger.info(`🚀 Using latest Vite for Node.js ${nodeVersion}: ${command}`);
+        return command;
+      }
+    }
+    
+    // Generic fallback for any npm create vite command that doesn't specify version
+    if (command.includes('npm create vite') && !command.includes('vite@') && !command.includes('vite@latest')) {
+      const nodeVersion = process.version;
+      const majorVersion = parseInt(nodeVersion.split('.')[0].slice(1));
+      
+      if (majorVersion < 20) {
+        // Extract project details and convert to degit
+        const projectNameMatch = command.match(/create[^"]*\s+"?([^"\s]+)"?/);
+        const templateMatch = command.match(/--template\s+([^\s]+)/);
+        
+        const projectName = projectNameMatch ? projectNameMatch[1] : 'my-vite-app';
+        const template = templateMatch ? templateMatch[1] : 'react-ts';
+        
+        const degitTemplate = this.getDegitTemplate(template);
+        const degitCommand = `npx degit ${degitTemplate} ${projectName}`;
+        
+        logger.info(`🔧 Converting to degit for compatibility: ${degitCommand}`);
+        return degitCommand;
+      }
     }
     
     // Handle cd commands that reference /home/project/ paths - remove the cd part since we manage working directory
@@ -381,6 +696,27 @@ export class CloudContainerManager {
     }
     
     return command;
+  }
+
+  // Get appropriate degit template based on Vite template type
+  getDegitTemplate(template) {
+    const templateMap = {
+      'react-ts': 'vitejs/vite/packages/create-vite/template-react-ts',
+      'react': 'vitejs/vite/packages/create-vite/template-react',
+      'vue-ts': 'vitejs/vite/packages/create-vite/template-vue-ts',
+      'vue': 'vitejs/vite/packages/create-vite/template-vue',
+      'vanilla-ts': 'vitejs/vite/packages/create-vite/template-vanilla-ts',
+      'vanilla': 'vitejs/vite/packages/create-vite/template-vanilla',
+      'svelte-ts': 'vitejs/vite/packages/create-vite/template-svelte-ts',
+      'svelte': 'vitejs/vite/packages/create-vite/template-svelte',
+      'lit-ts': 'vitejs/vite/packages/create-vite/template-lit-ts',
+      'lit': 'vitejs/vite/packages/create-vite/template-lit',
+      'preact-ts': 'vitejs/vite/packages/create-vite/template-preact-ts',
+      'preact': 'vitejs/vite/packages/create-vite/template-preact'
+    };
+    
+    // Return the mapped template or default to react-ts
+    return templateMap[template] || templateMap['react-ts'];
   }
 
   // Helper function to resolve file path within container

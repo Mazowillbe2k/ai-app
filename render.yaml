@@ -3,6 +3,7 @@ services:
     name: ai-agent-backend
     runtime: node
     plan: free
+    # Specify Node.js 20+ for Vite compatibility
     buildCommand: cd backend && npm install
     startCommand: cd backend && npm start
     envVars:
@@ -10,4 +11,6 @@ services:
         value: production
       - key: PORT
         value: 10000
+      - key: NODE_VERSION
+        value: 20.11.0
     healthCheckPath: /health 

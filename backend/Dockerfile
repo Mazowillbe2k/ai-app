@@ -1,5 +1,19 @@
-# Use Node.js official image (version 18 or higher as specified in package.json)
-FROM node:18-alpine
+# Use Ubuntu 22.04 LTS as base image
+FROM ubuntu:22.04
+
+# Set environment variables to avoid interactive prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install Node.js 18.x and other dependencies
+RUN apt-get update && apt-get install -y \
+    curl \
+    ca-certificates \
+    gnupg \
+    lsb-release \
+    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
 WORKDIR /app
@@ -14,8 +28,8 @@ RUN npm ci --only=production
 COPY src/ ./src/
 
 # Create non-root user for security
-RUN addgroup -g 1001 -S nodejs
-RUN adduser -S nodeuser -u 1001
+RUN groupadd -r nodejs && useradd -r -g nodejs nodeuser
+RUN chown -R nodeuser:nodejs /app
 USER nodeuser
 
 # Expose the port (must match PORT in server.js)

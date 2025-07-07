@@ -253,6 +253,12 @@ export class ToolExecutionService {
     
     const result = await this.container.executeCommand(createCommand);
     
+    // Set working directory to the newly created project
+    if (result.exitCode === 0) {
+      console.log(`📂 Setting working directory to: ${project_name}`);
+      await this.container.setWorkingDirectory(project_name);
+    }
+    
     // If using Tailwind or shadcn, install additional dependencies
     if (framework.includes('tailwind') || framework.includes('shadcn')) {
       await this.container.executeCommand(`cd ${project_name} && npm install -D tailwindcss postcss autoprefixer --yes`);

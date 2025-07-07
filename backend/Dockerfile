@@ -1,43 +1,45 @@
 # Use Ubuntu 22.04 LTS as base image
 FROM ubuntu:22.04
 
-# Set environment variables to avoid interactive prompts
+# Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install Node.js 18.x and other dependencies
+# Install essential packages
 RUN apt-get update && apt-get install -y \
     curl \
+    wget \
+    git \
+    nano \
+    vim \
+    build-essential \
+    python3 \
+    python3-pip \
     ca-certificates \
     gnupg \
     lsb-release \
-    && curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
-    && apt-get install -y nodejs \
-    && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
-# Set working directory
-WORKDIR /app
+# Install Node.js 18.x
+RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
+    && apt-get install -y nodejs
 
-# Copy package files
-COPY package*.json ./
+# Install Docker CLI
+RUN mkdir -p /etc/apt/keyrings \
+    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
+    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
+    && apt-get update \
+    && apt-get install -y docker-ce-cli \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-RUN npm ci --only=production
+# Create workspace directory
+WORKDIR /workspace
 
-# Copy source code
-COPY src/ ./src/
+# Set environment variables
+ENV NODE_ENV=development
+ENV PATH=/workspace/node_modules/.bin:$PATH
 
-# Create non-root user for security
-RUN groupadd -r nodejs && useradd -r -g nodejs nodeuser
-RUN chown -R nodeuser:nodejs /app
-USER nodeuser
-
-# Expose the port (must match PORT in server.js)
+# Expose common development ports
 EXPOSE 10000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
-  CMD curl -f http://localhost:10000/health || exit 1
-
-# Start the server
-CMD ["node", "src/server.js"] 
+# Default command
+CMD ["tail", "-f", "/dev/null"] 

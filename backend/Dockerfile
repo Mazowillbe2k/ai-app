@@ -28,9 +28,8 @@ RUN curl -fsSL https://deb.nodesource.com/setup_18.x | bash - \
 # Install Bun (fast JavaScript runtime and package manager)
 RUN curl -fsSL https://bun.sh/install | bash \
     && mv /root/.bun/bin/bun /usr/local/bin/bun \
-    && mv /root/.bun/bin/bunx /usr/local/bin/bunx \
     && chmod +x /usr/local/bin/bun \
-    && chmod +x /usr/local/bin/bunx
+    && ln -s /usr/local/bin/bun /usr/local/bin/bunx
 
 # Install degit and glob globally for fast project scaffolding and pattern matching
 RUN npm install -g degit glob

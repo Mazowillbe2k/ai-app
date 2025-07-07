@@ -14,7 +14,7 @@ async function deployToRender() {
       type: 'web_service',
       name: 'ai-agent-backend',
       ownerId: null, // Will use default owner
-      repo: 'https://github.com/your-username/ai-agent-platform', // Update with your repo
+      repo: 'https://github.com/Mazowillbe2k/ai-app', // Update with your repo
       branch: 'main',
       runtime: 'node',
       buildCommand: 'cd backend && npm install',

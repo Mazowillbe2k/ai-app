@@ -268,7 +268,7 @@ export class CloudContainerManager {
       
       for (const item of items) {
         const itemPath = path.join(fullPath, item);
-        const stats = await fs.stat(itemPath);
+        const _stats = await fs.stat(itemPath);
         files.push(item);
       }
       
@@ -395,7 +395,7 @@ export class CloudContainerManager {
   }
 
   // Get preview URL (simulated for cloud)
-  async getPreviewUrl(containerId) {
+  async getPreviewUrl(_containerId) {
     // In cloud mode, we can't run actual dev servers
     // Return a simulated URL or null
     return { url: null };

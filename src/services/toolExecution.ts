@@ -1,5 +1,5 @@
-import { ProjectFile, ToolResult } from '../types';
-import { DockerContainerInterface, ContainerInterface } from './containerInterface';
+import type { ProjectFile, ToolResult } from '../types';
+import { DockerContainerInterface, type ContainerInterface } from './containerInterface';
 
 export class ToolExecutionService {
   private projectFiles: ProjectFile[] = [];
@@ -258,7 +258,7 @@ export class ToolExecutionService {
     let content = readResult.content;
     
     if (replace_all) {
-      content = content.replaceAll(old_string, new_string);
+      content = content.replace(new RegExp(old_string.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'), new_string);
     } else {
       const index = content.indexOf(old_string);
       if (index === -1) {
@@ -362,6 +362,24 @@ export class ToolExecutionService {
     };
   }
 
+  private async deleteFile(params: { relative_file_path: string }): Promise<ToolResult> {
+    const { relative_file_path } = params;
+    
+    console.log(`🗑️ Deleting file: ${relative_file_path}`);
+    
+    const deleteResult = await this.container.deleteFile(relative_file_path);
+    
+    return {
+      success: deleteResult.success,
+      output: deleteResult.success ? `File ${relative_file_path} deleted successfully` : 'Failed to delete file',
+      error: deleteResult.error,
+      metadata: {
+        filePath: relative_file_path,
+        isRealContainer: true
+      }
+    };
+  }
+
   private async editFile(params: { relative_file_path: string; instructions: string; code_edit: string; smart_apply?: boolean }): Promise<ToolResult> {
     const { relative_file_path, instructions, code_edit, smart_apply } = params;
     
@@ -427,7 +445,7 @@ export class ToolExecutionService {
   }
 
   private async deploy(params: { project_directory: string; platform: string; config?: any }): Promise<ToolResult> {
-    const { project_directory, platform, config } = params;
+    const { project_directory, platform, config: _config } = params;
     
     console.log(`🚀 Deploy to ${platform}: ${project_directory}`);
     

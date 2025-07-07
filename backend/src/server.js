@@ -1,9 +1,25 @@
-import express from 'express';
-import cors from 'cors';
-import bodyParser from 'body-parser';
-import { DockerContainerManager } from './containerManager.js';
-import { CloudContainerManager } from './cloudContainerManager.js';
-import winston from 'winston';
+/* eslint-env node */
+/* eslint-disable no-undef */
+
+const express = require('express');
+const cors = require('cors');
+const path = require('path');
+const winston = require('winston');
+
+// Check if we're in production environment
+const isProduction = process.env.NODE_ENV === 'production';
+
+// Conditionally require Docker-dependent modules
+let DockerContainerManager;
+let CloudContainerManager;
+
+if (!isProduction) {
+  // Development mode - use Docker
+  DockerContainerManager = require('./containerManager.js').DockerContainerManager;
+} else {
+  // Production mode - use cloud-compatible manager
+  CloudContainerManager = require('./cloudContainerManager.js').CloudContainerManager;
+}
 
 // Configure logger
 const logger = winston.createLogger({
@@ -20,7 +36,6 @@ const logger = winston.createLogger({
 
 const app = express();
 const PORT = process.env.PORT || 3001;
-const isProduction = process.env.NODE_ENV === 'production';
 
 // Initialize container manager based on environment
 const containerManager = isProduction 
@@ -36,8 +51,8 @@ app.use(cors({
   credentials: true
 }));
 
-app.use(bodyParser.json({ limit: '10mb' }));
-app.use(bodyParser.urlencoded({ extended: true }));
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true }));
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -270,7 +285,7 @@ app.get('/api/container/status', (req, res) => {
 });
 
 // Error handling middleware
-app.use((err, req, res, next) => {
+app.use((err, req, res, _next) => {
   logger.error('Unhandled error:', err);
   res.status(500).json({ 
     error: 'Internal server error',
@@ -300,8 +315,8 @@ process.on('SIGTERM', async () => {
 });
 
 // Start server
-app.listen(PORT, () => {
-  logger.info(`🚀 Backend server running on http://localhost:${PORT}`);
-  logger.info(`📋 Health check: http://localhost:${PORT}/health`);
-  logger.info(`🐳 Container API: http://localhost:${PORT}/api/container/*`);
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info(`🚀 Backend server running on http://0.0.0.0:${PORT}`);
+  logger.info(`📋 Health check: http://0.0.0.0:${PORT}/health`);
+  logger.info(`🐳 Container API: http://0.0.0.0:${PORT}/api/container/*`);
 }); 

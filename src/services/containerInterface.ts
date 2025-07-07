@@ -13,15 +13,16 @@ export interface ContainerInterface {
 }
 
 export class DockerContainerInterface implements ContainerInterface {
-  private apiBaseUrl: string;
+  private baseUrl: string;
   private workingDir = '/workspace';
   private isInitialized = false;
   
   constructor() {
-    // Use environment variable for backend URL, fallback to local
-    const backendUrl = import.meta.env.VITE_BACKEND_URL || 'http://localhost:3001';
-    this.apiBaseUrl = `${backendUrl}/api/container`;
-    console.log(`🔗 Using backend: ${backendUrl}`);
+    // Use environment variable with fallback for different environments
+    this.baseUrl = (typeof window !== 'undefined' && (window as any).__VITE_BACKEND_URL__) || 
+                   process.env.VITE_BACKEND_URL || 
+                   'http://localhost:3001';
+    console.log(`🔗 Using backend: ${this.baseUrl}`);
     this.initializeContainer();
   }
 
@@ -30,7 +31,7 @@ export class DockerContainerInterface implements ContainerInterface {
     
     try {
       console.log('🐳 Initializing Docker container...');
-      const response = await fetch(`${this.apiBaseUrl}/init`, {
+      const response = await fetch(`${this.baseUrl}/api/container/init`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
       });
@@ -60,7 +61,7 @@ export class DockerContainerInterface implements ContainerInterface {
     try {
       console.log(`🐳 Executing: ${command}`);
       
-      const response = await fetch(`${this.apiBaseUrl}/execute`, {
+      const response = await fetch(`${this.baseUrl}/api/container/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -120,7 +121,7 @@ export class DockerContainerInterface implements ContainerInterface {
     await this.ensureReady();
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/read`, {
+      const response = await fetch(`${this.baseUrl}/api/container/read`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -155,7 +156,7 @@ export class DockerContainerInterface implements ContainerInterface {
     await this.ensureReady();
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/write`, {
+      const response = await fetch(`${this.baseUrl}/api/container/write`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -181,7 +182,7 @@ export class DockerContainerInterface implements ContainerInterface {
     await this.ensureReady();
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/list`, {
+      const response = await fetch(`${this.baseUrl}/api/container/list`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -214,7 +215,7 @@ export class DockerContainerInterface implements ContainerInterface {
     await this.ensureReady();
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/mkdir`, {
+      const response = await fetch(`${this.baseUrl}/api/container/mkdir`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -239,7 +240,7 @@ export class DockerContainerInterface implements ContainerInterface {
     await this.ensureReady();
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/delete`, {
+      const response = await fetch(`${this.baseUrl}/api/container/delete`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -264,7 +265,7 @@ export class DockerContainerInterface implements ContainerInterface {
     await this.ensureReady();
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/exists`, {
+      const response = await fetch(`${this.baseUrl}/api/container/exists`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -304,7 +305,7 @@ export class DockerContainerInterface implements ContainerInterface {
     await this.ensureReady();
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/all-files`, {
+      const response = await fetch(`${this.baseUrl}/api/container/all-files`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -341,7 +342,7 @@ export class DockerContainerInterface implements ContainerInterface {
     await this.ensureReady();
     
     try {
-      const response = await fetch(`${this.apiBaseUrl}/preview-url`, {
+      const response = await fetch(`${this.baseUrl}/api/container/preview-url`, {
         method: 'GET'
       });
       
@@ -360,7 +361,7 @@ export class DockerContainerInterface implements ContainerInterface {
   // Cleanup method (for API-based cleanup)
   async cleanup(): Promise<void> {
     try {
-      await fetch(`${this.apiBaseUrl}/cleanup`, {
+      await fetch(`${this.baseUrl}/api/container/cleanup`, {
         method: 'POST'
       });
       console.log('✅ Container cleaned up successfully');

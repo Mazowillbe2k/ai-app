@@ -146,11 +146,17 @@ export class CloudContainerManager {
       logger.info(`🚀 Executing in cloud mode: ${command}`);
       logger.info(`📁 Working directory: ${execDir}`);
       
+      // Preprocess command for compatibility
+      const processedCommand = this.preprocessCommand(command);
+      if (processedCommand !== command) {
+        logger.info(`🔄 Preprocessed command: ${processedCommand}`);
+      }
+      
       // Execute all safe commands directly - no more simulation
-      if (this.isSafeCommand(command)) {
+      if (this.isSafeCommand(processedCommand)) {
         // Validate package.json for npm run commands
-        if (command.includes('npm run') || (command.includes('npm') && !command.includes('create') && !command.includes('install'))) {
-          const validation = await this.validatePackageJson(containerId, command, workingDir);
+        if (processedCommand.includes('npm run') || (processedCommand.includes('npm') && !processedCommand.includes('create') && !processedCommand.includes('install'))) {
+          const validation = await this.validatePackageJson(containerId, processedCommand, workingDir);
           if (!validation.valid) {
             logger.error(`❌ Package validation failed: ${validation.error}`);
             return {
@@ -180,7 +186,7 @@ export class CloudContainerManager {
         logger.info(`⚙️ Executing with timeout: ${execOptions.timeout}ms`);
         const startTime = Date.now();
         
-        const { stdout, stderr } = await execAsync(command, execOptions);
+        const { stdout, stderr } = await execAsync(processedCommand, execOptions);
         
         const duration = Date.now() - startTime;
         logger.info(`✅ Command completed in ${duration}ms`);
@@ -191,6 +197,11 @@ export class CloudContainerManager {
         if (stderr) {
           logger.warn(`📤 STDERR: ${stderr.substring(0, 500)}${stderr.length > 500 ? '...' : ''}`);
         }
+
+        // Handle post-creation setup for project creation commands
+        if (processedCommand.includes('create-vite') || processedCommand.includes('create vite')) {
+          await this.handlePostProjectCreation(containerId, processedCommand, execDir);
+        }
         
         return {
           output: stdout,
@@ -200,10 +211,10 @@ export class CloudContainerManager {
       }
 
       // For unsafe commands, return error instead of simulation
-      logger.warn(`🚫 Command not allowed: ${command}`);
+      logger.warn(`🚫 Command not allowed: ${processedCommand}`);
       return {
         output: '',
-        error: `Command "${command}" is not allowed in cloud environment for security reasons`,
+        error: `Command "${processedCommand}" is not allowed in cloud environment for security reasons`,
         exitCode: 1
       };
       
@@ -221,6 +232,64 @@ export class CloudContainerManager {
         error: `Command failed: ${error.message} (code: ${error.code || 'unknown'})`,
         exitCode: error.code || 1
       };
+    }
+  }
+
+  // Handle post project creation setup
+  async handlePostProjectCreation(containerId, command, execDir) {
+    try {
+      // Extract project name from create command - handle quoted names with spaces
+      let projectNameMatch = command.match(/create-vite@?\S*\s+"([^"]+)"/);  // quoted names
+      if (!projectNameMatch) {
+        projectNameMatch = command.match(/create-vite@?\S*\s+([^\s-]+)/);  // unquoted names
+      }
+      
+      if (!projectNameMatch) {
+        logger.warn(`⚠️ Could not extract project name from: ${command}`);
+        return;
+      }
+
+      const projectName = projectNameMatch[1];
+      const projectPath = path.join(execDir, projectName);
+      
+      logger.info(`🔧 Setting up project: ${projectName} at ${projectPath}`);
+      
+      // Check if project directory was created
+      if (await fs.pathExists(projectPath)) {
+        // Update container working directory to the project
+        const container = this.containers.get(containerId);
+        container.workingDir = projectPath;
+        this.containers.set(containerId, container);
+        
+        logger.info(`📁 Updated container working directory to: ${projectPath}`);
+        
+        // Install dependencies
+        logger.info(`📦 Installing dependencies for ${projectName}...`);
+        const installOptions = {
+          cwd: projectPath,
+          maxBuffer: 10 * 1024 * 1024,
+          timeout: 180000,
+          env: {
+            ...process.env,
+            HOME: projectPath,
+            npm_config_cache: path.join(projectPath, '.npm'),
+            npm_config_prefix: projectPath
+          }
+        };
+        
+        try {
+          await fs.ensureDir(path.join(projectPath, '.npm'));
+          const { stdout: installStdout } = await execAsync('npm install', installOptions);
+          logger.info(`✅ Dependencies installed successfully`);
+          logger.info(`📤 Install output: ${installStdout.substring(0, 300)}...`);
+        } catch (installError) {
+          logger.error(`❌ Failed to install dependencies: ${installError.message}`);
+        }
+      } else {
+        logger.error(`❌ Project directory not found: ${projectPath}`);
+      }
+    } catch (error) {
+      logger.error(`❌ Post-creation setup failed: ${error.message}`);
     }
   }
 
@@ -254,6 +323,31 @@ export class CloudContainerManager {
     return safePatterns.some(pattern => 
       new RegExp(pattern).test(command.trim())
     );
+  }
+
+  // Enhanced command preprocessing for compatibility
+  preprocessCommand(command) {
+    // Handle Node.js version compatibility for create-vite
+    if (command.includes('npm create vite@latest')) {
+      // Use compatible version for Node.js 18
+      command = command.replace('npm create vite@latest', 'npx create-vite@4.4.1');
+      logger.info(`🔧 Using compatible create-vite version for Node.js 18`);
+    }
+    
+    // Handle project names with spaces by adding quotes
+    const createViteMatch = command.match(/(npx create-vite@?\S*)\s+([^-]+)(.*)/);
+    if (createViteMatch) {
+      const [, createCmd, projectName, rest] = createViteMatch;
+      const cleanProjectName = projectName.trim();
+      
+      // If project name has spaces and isn't already quoted
+      if (cleanProjectName.includes(' ') && !cleanProjectName.startsWith('"')) {
+        command = `${createCmd} "${cleanProjectName}"${rest}`;
+        logger.info(`🔧 Quoted project name: "${cleanProjectName}"`);
+      }
+    }
+    
+    return command;
   }
 
   // Helper function to resolve file path within container
@@ -304,46 +398,64 @@ export class CloudContainerManager {
     }
   }
 
-  // Write file to container
-  async writeFileToContainer(containerId, filePath, content, workingDir = null) {
-    try {
-      const fullPath = this.resolvePath(containerId, filePath, workingDir);
-      
-      // Verify path is within workspace
-      if (!fullPath.startsWith(this.workspaceDir)) {
-        throw new Error('Access denied: File outside workspace');
-      }
+  // Write file in container
+  async writeFile(containerId, filePath, content) {
+    const container = this.containers.get(containerId);
+    if (!container) {
+      throw new Error(`Container ${containerId} not found`);
+    }
 
-      // Ensure directory exists
+    // Use the current working directory (could be project directory after creation)
+    const baseDir = container.workingDir || container.projectDir;
+    const fullPath = this.resolvePath(filePath, baseDir);
+    
+    logger.info(`✏️ Writing file: ${filePath} to ${fullPath}`);
+    
+    try {
       await fs.ensureDir(path.dirname(fullPath));
-      
-      // Write file
-      await fs.writeFile(fullPath, content, 'utf-8');
-      
+      await fs.writeFile(fullPath, content, 'utf8');
+      logger.info(`✅ File written successfully: ${filePath}`);
       return { success: true };
     } catch (error) {
-      return { success: false, error: error.message };
+      logger.error(`❌ Failed to write file ${filePath}:`, error);
+      throw error;
     }
   }
 
-  // List directory contents
-  async listDirectoryInContainer(containerId, dirPath, workingDir = null) {
-    try {
-      const fullPath = this.resolvePath(containerId, dirPath, workingDir);
-      
-      // Verify path is within workspace
-      if (!fullPath.startsWith(this.workspaceDir)) {
-        throw new Error('Access denied: Directory outside workspace');
-      }
+  // List directory contents in container
+  async listDirectory(containerId, dirPath = '/') {
+    const container = this.containers.get(containerId);
+    if (!container) {
+      throw new Error(`Container ${containerId} not found`);
+    }
 
-      const items = await fs.readdir(fullPath, { withFileTypes: true });
-      const files = items.map(item => {
-        return item.isDirectory() ? `${item.name}/` : item.name;
-      });
+    // Use current working directory if dirPath is root
+    let targetDir;
+    if (dirPath === '/' || dirPath === '.') {
+      targetDir = container.workingDir || container.projectDir;
+    } else {
+      targetDir = this.resolvePath(dirPath, container.workingDir || container.projectDir);
+    }
+    
+    logger.info(`📁 Listing directory: ${dirPath} (resolved to: ${targetDir})`);
+    
+    try {
+      const exists = await fs.pathExists(targetDir);
+      if (!exists) {
+        return [];
+      }
       
-      return { files };
+      const items = await fs.readdir(targetDir, { withFileTypes: true });
+      const result = items.map(item => ({
+        name: item.name,
+        type: item.isDirectory() ? 'directory' : 'file'
+      }));
+      
+      logger.info(`📋 Found ${result.length} items in directory`);
+      return result;
     } catch (error) {
-      return { files: [], error: error.message };
+      logger.error(`❌ Failed to list directory ${dirPath}:`, error);
+      return [];
     }
   }
 
@@ -528,4 +640,4 @@ export class CloudContainerManager {
       }))
     };
   }
-} 
+}

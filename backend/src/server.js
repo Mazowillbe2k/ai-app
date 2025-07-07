@@ -1,6 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import { DockerContainerManager } from './containerManager.js';
+import { CloudContainerManager } from './cloudContainerManager.js';
 
 const app = express();
 // Use Render's recommended port with their default fallback
@@ -12,8 +13,17 @@ console.log('🔧 Node version:', process.version);
 console.log('🏗️ Environment:', process.env.NODE_ENV || 'development');
 console.log('🔌 Port:', port);
 
-// Initialize Docker container manager
-const containerManager = new DockerContainerManager();
+// Detect environment and initialize appropriate container manager
+let containerManager;
+const isCloudEnvironment = process.env.NODE_ENV === 'production' || process.env.RENDER || !process.env.DOCKER_AVAILABLE;
+
+if (isCloudEnvironment) {
+  console.log('☁️ Cloud environment detected - using CloudContainerManager');
+  containerManager = new CloudContainerManager();
+} else {
+  console.log('🐳 Local environment detected - using DockerContainerManager');
+  containerManager = new DockerContainerManager();
+}
 
 // Basic middleware
 app.use(cors());
@@ -27,7 +37,8 @@ app.get('/health', (req, res) => {
     status: 'healthy', 
     timestamp: new Date().toISOString(),
     message: 'AI Agent Backend is running',
-    port: port
+    port: port,
+    containerMode: isCloudEnvironment ? 'cloud' : 'docker'
   });
 });
 
@@ -36,6 +47,7 @@ app.get('/api/status', (req, res) => {
   res.json({ 
     message: 'AI Agent Backend API is running',
     port: port,
+    containerMode: isCloudEnvironment ? 'cloud' : 'docker',
     containerManager: containerManager.getContainerStatus()
   });
 });
@@ -43,9 +55,9 @@ app.get('/api/status', (req, res) => {
 // Container Management Endpoints
 app.post('/api/container/init', async (req, res) => {
   try {
-    console.log('🐳 Initializing Docker container...');
+    console.log('🚀 Initializing container...');
     const result = await containerManager.initializeContainer();
-    res.json(result);
+    res.json({ success: true, ...result });
   } catch (error) {
     console.error('❌ Container initialization failed:', error);
     res.status(500).json({ 
@@ -60,8 +72,8 @@ app.post('/api/container/execute', async (req, res) => {
     const { command, workingDir = '/workspace' } = req.body;
     console.log(`🔧 Executing command: ${command}`);
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.status(400).json({
         output: '',
         error: 'No active container found. Please initialize a container first.',
@@ -69,6 +81,7 @@ app.post('/api/container/execute', async (req, res) => {
       });
     }
     
+    const containerId = container.id || container;
     const result = await containerManager.executeInContainer(containerId, command, workingDir);
     res.json(result);
   } catch (error) {
@@ -86,14 +99,15 @@ app.post('/api/container/read', async (req, res) => {
     const { filePath, workingDir = '/workspace' } = req.body;
     console.log(`📖 Reading file: ${filePath}`);
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.json({
         content: '',
         error: 'No active container found. Please initialize a container first.'
       });
     }
     
+    const containerId = container.id || container;
     const result = await containerManager.readFileFromContainer(containerId, filePath, workingDir);
     res.json(result);
   } catch (error) {
@@ -110,14 +124,15 @@ app.post('/api/container/write', async (req, res) => {
     const { filePath, content, workingDir = '/workspace' } = req.body;
     console.log(`✏️ Writing file: ${filePath}`);
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.json({
         success: false,
         error: 'No active container found. Please initialize a container first.'
       });
     }
     
+    const containerId = container.id || container;
     const result = await containerManager.writeFileToContainer(containerId, filePath, content, workingDir);
     res.json(result);
   } catch (error) {
@@ -134,14 +149,15 @@ app.post('/api/container/list', async (req, res) => {
     const { dirPath, workingDir = '/workspace' } = req.body;
     console.log(`📁 Listing directory: ${dirPath}`);
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.json({
         files: [],
         error: 'No active container found. Please initialize a container first.'
       });
     }
     
+    const containerId = container.id || container;
     const result = await containerManager.listDirectoryInContainer(containerId, dirPath, workingDir);
     res.json(result);
   } catch (error) {
@@ -158,14 +174,15 @@ app.post('/api/container/mkdir', async (req, res) => {
     const { dirPath, workingDir = '/workspace' } = req.body;
     console.log(`📂 Creating directory: ${dirPath}`);
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.json({
         success: false,
         error: 'No active container found. Please initialize a container first.'
       });
     }
     
+    const containerId = container.id || container;
     const result = await containerManager.createDirectoryInContainer(containerId, dirPath, workingDir);
     res.json(result);
   } catch (error) {
@@ -182,14 +199,15 @@ app.post('/api/container/delete', async (req, res) => {
     const { filePath, workingDir = '/workspace' } = req.body;
     console.log(`🗑️ Deleting: ${filePath}`);
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.json({
         success: false,
         error: 'No active container found. Please initialize a container first.'
       });
     }
     
+    const containerId = container.id || container;
     const result = await containerManager.deleteInContainer(containerId, filePath, workingDir);
     res.json(result);
   } catch (error) {
@@ -205,11 +223,12 @@ app.post('/api/container/exists', async (req, res) => {
   try {
     const { filePath, workingDir = '/workspace' } = req.body;
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.json({ exists: false });
     }
     
+    const containerId = container.id || container;
     const exists = await containerManager.fileExistsInContainer(containerId, filePath, workingDir);
     res.json({ exists });
   } catch (error) {
@@ -223,14 +242,15 @@ app.post('/api/container/all-files', async (req, res) => {
     const { workingDir = '/workspace' } = req.body;
     console.log(`📄 Getting all files from: ${workingDir}`);
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.json({
         files: [],
         error: 'No active container found. Please initialize a container first.'
       });
     }
     
+    const containerId = container.id || container;
     const result = await containerManager.getAllFilesFromContainer(containerId, workingDir);
     res.json(result);
   } catch (error) {
@@ -246,11 +266,12 @@ app.get('/api/container/preview-url', async (req, res) => {
   try {
     console.log('🌐 Getting preview URL...');
     
-    const containerId = await containerManager.getActiveContainer();
-    if (!containerId) {
+    const container = await containerManager.getActiveContainer();
+    if (!container) {
       return res.json({ url: null });
     }
     
+    const containerId = container.id || container;
     const result = await containerManager.getPreviewUrl(containerId);
     res.json(result);
   } catch (error) {
@@ -266,7 +287,7 @@ app.get('/api/container/status', async (req, res) => {
   } catch (error) {
     console.error('❌ Status check failed:', error);
     res.json({ 
-      mode: 'docker',
+      mode: isCloudEnvironment ? 'cloud' : 'docker',
       activeContainers: 0,
       containers: [],
       error: error.message
@@ -307,7 +328,7 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`✅ AI Agent Backend listening on port ${port}`);
   console.log(`🌐 Server running on http://0.0.0.0:${port}`);
   console.log(`📋 Health check: http://0.0.0.0:${port}/health`);
-  console.log(`🐳 Docker container manager initialized`);
+  console.log(`🔧 Container manager: ${isCloudEnvironment ? 'CloudContainerManager' : 'DockerContainerManager'}`);
 });
 
 // Graceful shutdown

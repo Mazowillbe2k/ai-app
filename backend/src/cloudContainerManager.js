@@ -99,11 +99,23 @@ export class CloudContainerManager {
 
       // Execute safe commands directly
       if (this.isSafeCommand(command)) {
-        const { stdout, stderr } = await execAsync(command, { 
+        // Create proper environment for npm commands
+        const execOptions = { 
           cwd: execDir,
           maxBuffer: 10 * 1024 * 1024,
-          timeout: 60000 // 1 minute timeout in cloud
-        });
+          timeout: 60000, // 1 minute timeout in cloud
+          env: {
+            ...process.env,
+            HOME: execDir, // Set HOME to project directory to avoid permission issues
+            npm_config_cache: path.join(execDir, '.npm'),
+            npm_config_prefix: execDir
+          }
+        };
+        
+        // Ensure npm cache directory exists
+        await fs.ensureDir(path.join(execDir, '.npm'));
+        
+        const { stdout, stderr } = await execAsync(command, execOptions);
         
         return {
           output: stdout,
@@ -144,6 +156,7 @@ export class CloudContainerManager {
   isSafeCommand(command) {
     const safePatterns = [
       '^npm',
+      '^npx',
       '^node',
       '^ls',
       '^cat',
@@ -197,23 +210,48 @@ export class CloudContainerManager {
     };
   }
 
+  // Helper function to resolve file path within container
+  resolvePath(containerId, filePath, workingDir = null) {
+    const container = this.containers.get(containerId);
+    if (!container) {
+      throw new Error(`Container ${containerId} not found`);
+    }
+
+    // Use workingDir if provided, otherwise use container's project directory
+    const baseDir = workingDir || container.projectDir;
+    
+    // If filePath is absolute and starts with /workspace, map it to the container directory
+    if (filePath.startsWith('/workspace')) {
+      const relativePath = path.relative('/workspace', filePath);
+      return path.resolve(baseDir, relativePath);
+    }
+    
+    // If filePath is relative, resolve it relative to baseDir
+    if (!path.isAbsolute(filePath)) {
+      return path.resolve(baseDir, filePath);
+    }
+    
+    // If absolute path, check if it's within our workspace
+    const resolvedPath = path.resolve(filePath);
+    if (resolvedPath.startsWith(this.workspaceDir)) {
+      return resolvedPath;
+    }
+    
+    // Default: treat as relative to baseDir
+    return path.resolve(baseDir, path.basename(filePath));
+  }
+
   // Read file from container
   async readFileFromContainer(containerId, filePath, workingDir = null) {
     try {
-      const container = this.containers.get(containerId);
-      if (!container) {
-        throw new Error(`Container ${containerId} not found`);
-      }
-
-      const baseDir = workingDir || container.projectDir;
-      const fullPath = path.resolve(baseDir, filePath);
+      const fullPath = this.resolvePath(containerId, filePath, workingDir);
       
-      // Security check - ensure file is within workspace
+      // Verify path is within workspace
       if (!fullPath.startsWith(this.workspaceDir)) {
         throw new Error('Access denied: File outside workspace');
       }
 
-      const content = await fs.readFile(fullPath, 'utf8');
+      const content = await fs.readFile(fullPath, 'utf-8');
       return { content };
     } catch (error) {
       return { content: '', error: error.message };
@@ -223,54 +261,39 @@ export class CloudContainerManager {
   // Write file to container
   async writeFileToContainer(containerId, filePath, content, workingDir = null) {
     try {
-      const container = this.containers.get(containerId);
-      if (!container) {
-        throw new Error(`Container ${containerId} not found`);
-      }
-
-      const baseDir = workingDir || container.projectDir;
-      const fullPath = path.resolve(baseDir, filePath);
+      const fullPath = this.resolvePath(containerId, filePath, workingDir);
       
-      // Security check - ensure file is within workspace
+      // Verify path is within workspace
       if (!fullPath.startsWith(this.workspaceDir)) {
         throw new Error('Access denied: File outside workspace');
       }
 
-      // Create directory if it doesn't exist
+      // Ensure directory exists
       await fs.ensureDir(path.dirname(fullPath));
-      await fs.writeFile(fullPath, content, 'utf8');
+      
+      // Write file
+      await fs.writeFile(fullPath, content, 'utf-8');
       
       return { success: true };
     } catch (error) {
-      logger.error(`Failed to write file ${filePath}:`, error);
       return { success: false, error: error.message };
     }
   }
 
-  // List directory in container
+  // List directory contents
   async listDirectoryInContainer(containerId, dirPath, workingDir = null) {
     try {
-      const container = this.containers.get(containerId);
-      if (!container) {
-        throw new Error(`Container ${containerId} not found`);
-      }
-
-      const baseDir = workingDir || container.projectDir;
-      const fullPath = path.resolve(baseDir, dirPath);
+      const fullPath = this.resolvePath(containerId, dirPath, workingDir);
       
-      // Security check
+      // Verify path is within workspace
       if (!fullPath.startsWith(this.workspaceDir)) {
         throw new Error('Access denied: Directory outside workspace');
       }
 
-      const items = await fs.readdir(fullPath);
-      const files = [];
-      
-      for (const item of items) {
-        const itemPath = path.join(fullPath, item);
-        const _stats = await fs.stat(itemPath);
-        files.push(item);
-      }
+      const items = await fs.readdir(fullPath, { withFileTypes: true });
+      const files = items.map(item => {
+        return item.isDirectory() ? `${item.name}/` : item.name;
+      });
       
       return { files };
     } catch (error) {
@@ -281,15 +304,9 @@ export class CloudContainerManager {
   // Create directory in container
   async createDirectoryInContainer(containerId, dirPath, workingDir = null) {
     try {
-      const container = this.containers.get(containerId);
-      if (!container) {
-        throw new Error(`Container ${containerId} not found`);
-      }
-
-      const baseDir = workingDir || container.projectDir;
-      const fullPath = path.resolve(baseDir, dirPath);
+      const fullPath = this.resolvePath(containerId, dirPath, workingDir);
       
-      // Security check
+      // Verify path is within workspace
       if (!fullPath.startsWith(this.workspaceDir)) {
         throw new Error('Access denied: Directory outside workspace');
       }
@@ -301,18 +318,12 @@ export class CloudContainerManager {
     }
   }
 
-  // Delete file/directory in container
+  // Delete file/directory from container
   async deleteInContainer(containerId, filePath, workingDir = null) {
     try {
-      const container = this.containers.get(containerId);
-      if (!container) {
-        throw new Error(`Container ${containerId} not found`);
-      }
-
-      const baseDir = workingDir || container.projectDir;
-      const fullPath = path.resolve(baseDir, filePath);
+      const fullPath = this.resolvePath(containerId, filePath, workingDir);
       
-      // Security check
+      // Verify path is within workspace
       if (!fullPath.startsWith(this.workspaceDir)) {
         throw new Error('Access denied: Path outside workspace');
       }
@@ -327,71 +338,69 @@ export class CloudContainerManager {
   // Check if file exists in container
   async fileExistsInContainer(containerId, filePath, workingDir = null) {
     try {
-      const container = this.containers.get(containerId);
-      if (!container) {
-        return { exists: false };
-      }
-
-      const baseDir = workingDir || container.projectDir;
-      const fullPath = path.resolve(baseDir, filePath);
+      const fullPath = this.resolvePath(containerId, filePath, workingDir);
       
-      // Security check
+      // Verify path is within workspace
       if (!fullPath.startsWith(this.workspaceDir)) {
-        return { exists: false };
+        return false;
       }
 
-      const exists = await fs.pathExists(fullPath);
-      return { exists };
-    } catch {
-      return { exists: false };
+      return await fs.pathExists(fullPath);
+    } catch (error) {
+      return false;
     }
   }
 
-  // Get all files from container
+  // Get all files from container (recursive)
   async getAllFilesFromContainer(containerId, workingDir = null) {
-    const files = [];
-    
     try {
       const container = this.containers.get(containerId);
       if (!container) {
-        return { files: [] };
+        throw new Error(`Container ${containerId} not found`);
       }
 
       const baseDir = workingDir || container.projectDir;
-      
-      // Recursively find files
+      const files = [];
+
+      // Recursive function to find files
       const findFiles = async (dir, relativePath = '') => {
-        const items = await fs.readdir(dir);
-        
-        for (const item of items) {
-          if (item.startsWith('.') || item === 'node_modules') continue;
+        try {
+          const items = await fs.readdir(dir, { withFileTypes: true });
           
-          const itemPath = path.join(dir, item);
-          const stats = await fs.stat(itemPath);
-          const itemRelativePath = path.join(relativePath, item);
-          
-          if (stats.isDirectory()) {
-            await findFiles(itemPath, itemRelativePath);
-          } else if (stats.isFile() && files.length < 50) { // Limit files
-            try {
-              const content = await fs.readFile(itemPath, 'utf8');
-              files.push({ 
-                path: itemRelativePath.replace(/\\/g, '/'), 
-                content 
-              });
-            } catch (error) {
-              // Skip binary files or files that can't be read
+          for (const item of items) {
+            // Skip hidden files and common ignore patterns
+            if (item.name.startsWith('.') || 
+                item.name === 'node_modules' ||
+                item.name === 'dist' ||
+                item.name === 'build') {
+              continue;
+            }
+
+            const fullPath = path.join(dir, item.name);
+            const relPath = relativePath ? `${relativePath}/${item.name}` : item.name;
+
+            if (item.isFile()) {
+              try {
+                const content = await fs.readFile(fullPath, 'utf-8');
+                files.push({ path: relPath, content });
+              } catch (err) {
+                // Skip files that can't be read as text
+                console.warn(`Skipping file ${relPath}: ${err.message}`);
+              }
+            } else if (item.isDirectory()) {
+              await findFiles(fullPath, relPath);
             }
           }
+        } catch (err) {
+          console.warn(`Error reading directory ${dir}: ${err.message}`);
         }
       };
-      
+
       await findFiles(baseDir);
+      return { files };
     } catch (error) {
-      logger.error('Failed to get all files:', error);
+      return { files: [], error: error.message };
     }
-    
-    return { files };
   }
 
   // Get preview URL (simulated for cloud)
@@ -406,19 +415,14 @@ export class CloudContainerManager {
     try {
       logger.info('🧹 Cleaning up cloud containers...');
       
-      for (const [containerId, container] of this.containers) {
-        try {
-          // In cloud mode, we might keep the workspace for debugging
-          logger.info(`✅ Container ${container.name} marked for cleanup`);
-        } catch (error) {
-          logger.error(`❌ Failed to cleanup container ${container.name}:`, error);
-        }
-      }
-      
+      // In cloud mode, just clear the containers map
+      // The actual directories can remain for debugging
       this.containers.clear();
-      logger.info('✅ All cloud containers cleaned up');
+      
+      logger.info('✅ Cloud containers cleaned up');
     } catch (error) {
-      logger.error('❌ Failed to cleanup containers:', error);
+      logger.error('❌ Cleanup failed:', error);
+      throw error;
     }
   }
 
@@ -427,8 +431,12 @@ export class CloudContainerManager {
     return {
       mode: 'cloud',
       activeContainers: this.containers.size,
-      containers: Array.from(this.containers.values()),
-      workspaceDir: this.workspaceDir
+      containers: Array.from(this.containers.values()).map(container => ({
+        id: container.id,
+        name: container.name,
+        projectDir: container.projectDir,
+        createdAt: container.createdAt
+      }))
     };
   }
 } 

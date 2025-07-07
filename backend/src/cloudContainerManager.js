@@ -241,7 +241,7 @@ export class CloudContainerManager {
         projectNameMatch = command.match(/create-vite@?\S*\s+"([^"]+)"/);  // quoted names
       }
       if (!projectNameMatch) {
-        projectNameMatch = command.match(/create-vite@?\S*\s+([^\s-]+)/);  // unquoted names
+        projectNameMatch = command.match(/create-vite@?\S*\s+([^\s]+?)(?:\s+--|$)/);  // unquoted names with proper handling
       }
       
       if (!projectNameMatch) {
@@ -344,12 +344,23 @@ export class CloudContainerManager {
   preprocessCommand(command) {
     // Replace npm create vite with degit approach
     if (command.includes('npm create vite@latest') || command.includes('npx create-vite')) {
-      const projectNameMatch = command.match(/(?:npm create vite@latest|npx create-vite(?:@\S+)?)\s+([^\s-]+)/);
+      const projectNameMatch = command.match(/(?:npm create vite@latest|npx create-vite(?:@\S+)?)\s+([^\s]+?)(?:\s+--|$)/);
       if (projectNameMatch) {
         const projectName = projectNameMatch[1].replace(/['"]/g, ''); // Remove quotes
         const newCommand = `npx degit vitejs/vite/examples/react-ts ${projectName}`;
         logger.info(`🚀 Using degit for faster project creation: ${newCommand}`);
         return newCommand;
+      }
+    }
+    
+    // Handle cd commands that reference /home/project/ paths - remove the cd part since we manage working directory
+    if (command.includes('cd /home/project/') && command.includes('&&')) {
+      const parts = command.split('&&');
+      if (parts.length >= 2) {
+        // Return just the command part after &&, trimmed
+        const actualCommand = parts.slice(1).join('&&').trim();
+        logger.info(`🔧 Simplified command by removing cd: ${actualCommand}`);
+        return actualCommand;
       }
     }
     
@@ -363,8 +374,14 @@ export class CloudContainerManager {
       throw new Error(`Container ${containerId} not found`);
     }
 
-    // Use workingDir if provided, otherwise use container's project directory
-    const baseDir = workingDir || container.projectDir;
+    // Use container's working directory (which gets updated after project creation)
+    const baseDir = workingDir || container.workingDir || container.projectDir;
+    
+    // Handle paths that start with /home/project/ - map them to our workspace
+    if (filePath.startsWith('/home/project/')) {
+      const relativePath = filePath.replace('/home/project/', '');
+      return path.resolve(baseDir, relativePath);
+    }
     
     // If filePath is absolute and starts with /workspace, map it to the container directory
     if (filePath.startsWith('/workspace')) {

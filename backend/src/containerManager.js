@@ -312,6 +312,7 @@ export class DockerContainerManager {
   // Get container status
   getContainerStatus() {
     return {
+      mode: 'docker',
       activeContainers: this.containers.size,
       containers: Array.from(this.containers.values())
     };

@@ -1,25 +1,17 @@
 /* eslint-env node */
 /* eslint-disable no-undef */
 
-const express = require('express');
-const cors = require('cors');
-const path = require('path');
-const winston = require('winston');
+import express from 'express';
+import cors from 'cors';
+import path from 'path';
+import winston from 'winston';
+import { CloudContainerManager } from './cloudContainerManager.js';
+
+console.log('🚀 Starting server...');
 
 // Check if we're in production environment
 const isProduction = process.env.NODE_ENV === 'production';
-
-// Conditionally require Docker-dependent modules
-let DockerContainerManager;
-let CloudContainerManager;
-
-if (!isProduction) {
-  // Development mode - use Docker
-  DockerContainerManager = require('./containerManager.js').DockerContainerManager;
-} else {
-  // Production mode - use cloud-compatible manager
-  CloudContainerManager = require('./cloudContainerManager.js').CloudContainerManager;
-}
+console.log(`🏗️ Environment: ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'}`);
 
 // Configure logger
 const logger = winston.createLogger({
@@ -34,16 +26,19 @@ const logger = winston.createLogger({
   ]
 });
 
+console.log('📝 Logger configured');
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Initialize container manager based on environment
-const containerManager = isProduction 
-  ? new CloudContainerManager() 
-  : new DockerContainerManager();
+// For Render deployment, always use CloudContainerManager
+// In development, you can run with Docker separately
+const containerManager = new CloudContainerManager();
+
+console.log('🐳 Container manager initialized');
 
 logger.info(`🏗️ Running in ${isProduction ? 'PRODUCTION' : 'DEVELOPMENT'} mode`);
-logger.info(`📦 Using ${isProduction ? 'Cloud' : 'Docker'} Container Manager`);
+logger.info('📦 Using Cloud Container Manager for Render compatibility');
 
 // Middleware
 app.use(cors({
@@ -53,6 +48,8 @@ app.use(cors({
 
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true }));
+
+console.log('⚙️ Middleware configured');
 
 // Health check endpoint
 app.get('/health', (req, res) => {
@@ -301,6 +298,13 @@ app.use((req, res) => {
   });
 });
 
+// Start server
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info(`🚀 Backend server running on http://0.0.0.0:${PORT}`);
+  logger.info(`📋 Health check: http://0.0.0.0:${PORT}/health`);
+  logger.info(`🐳 Container API: http://0.0.0.0:${PORT}/api/container/*`);
+});
+
 // Graceful shutdown
 process.on('SIGINT', async () => {
   logger.info('🛑 Shutting down server...');
@@ -312,11 +316,4 @@ process.on('SIGTERM', async () => {
   logger.info('🛑 Shutting down server...');
   await containerManager.cleanup();
   process.exit(0);
-});
-
-// Start server
-app.listen(PORT, '0.0.0.0', () => {
-  logger.info(`🚀 Backend server running on http://0.0.0.0:${PORT}`);
-  logger.info(`📋 Health check: http://0.0.0.0:${PORT}/health`);
-  logger.info(`🐳 Container API: http://0.0.0.0:${PORT}/api/container/*`);
 }); 

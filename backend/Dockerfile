@@ -34,12 +34,31 @@ RUN mkdir -p /etc/apt/keyrings \
 # Create workspace directory
 WORKDIR /workspace
 
+# Copy package files for the backend application
+COPY package*.json ./
+
+# Install Node.js dependencies
+RUN npm ci --only=production
+
+# Copy the backend source code
+COPY src/ ./src/
+
 # Set environment variables
-ENV NODE_ENV=development
+ENV NODE_ENV=production
+ENV PORT=10000
 ENV PATH=/workspace/node_modules/.bin:$PATH
 
-# Expose common development ports
+# Create non-root user for security
+RUN groupadd -r nodejs && useradd -r -g nodejs nodeuser \
+    && chown -R nodeuser:nodejs /workspace
+USER nodeuser
+
+# Expose the port where the server will run
 EXPOSE 10000
 
-# Default command
-CMD ["tail", "-f", "/dev/null"] 
+# Health check to verify the server is running
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+  CMD curl -f http://localhost:10000/health || exit 1
+
+# Start the Node.js server (CRITICAL for port detection)
+CMD ["node", "src/server.js"] 

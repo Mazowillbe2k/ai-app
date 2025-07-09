@@ -45,24 +45,28 @@ WORKDIR /workspace
 COPY package*.json ./
 RUN npm install
 
-# Install Playwright browsers (this was missing in the previous version)
+# Install Playwright system dependencies as root (needs root privileges)
 RUN npx playwright install-deps
-RUN npx playwright install chromium
 
 # Copy backend and browser agent source
 COPY src/ ./src/
 COPY browser-agent/ ./browser-agent/
+
+# Create non-root user
+RUN groupadd -r nodejs && useradd -r -g nodejs nodeuser \
+    && chown -R nodeuser:nodejs /workspace
+
+# Switch to nodeuser and install Playwright browsers (browsers can be installed as user)
+USER nodeuser
+
+# Install Playwright browsers as the nodeuser (after system deps are installed)
+RUN npx playwright install chromium
 
 # Set environment variables
 ENV NODE_ENV=production
 ENV PORT=10000
 ENV BROWSER_PORT=10001
 ENV PATH=/workspace/node_modules/.bin:$PATH
-
-# Create non-root user
-RUN groupadd -r nodejs && useradd -r -g nodejs nodeuser \
-    && chown -R nodeuser:nodejs /workspace
-USER nodeuser
 
 # Expose backend port (browser agent is managed as subprocess)
 EXPOSE 10000

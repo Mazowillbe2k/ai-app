@@ -7,8 +7,15 @@ This document provides instructions for deploying the AI Agent Platform to vario
 
 ### Node.js Version Compatibility
 - **Updated Render configuration** to use Node.js 20.11.0 for better compatibility with modern tools
+- **Updated Dockerfile** to use Node.js 20.x instead of 18.x
 - **Added fallback strategies** for Vite project creation when using older Node.js versions
 - **Enhanced error handling** with automatic project creation fallbacks
+
+### Browser Agent Integration
+- **Fixed missing dependencies** - Added `playwright` and `node-fetch` to backend dependencies
+- **Integrated browser agent** - Browser agent now starts automatically with the main server
+- **Added proxy endpoint** - Main server forwards browser requests to browser agent
+- **Automatic browser installation** - Playwright browsers install automatically during deployment
 
 ### Cloud Container Manager Enhancements
 - **Automatic version detection** - System automatically detects Node.js version and uses compatible tool versions
@@ -17,20 +24,29 @@ This document provides instructions for deploying the AI Agent Platform to vario
 - **Better error recovery** - Improved error messages and recovery strategies
 - **Enhanced command preprocessing** - Smart command translation with compatibility checks
 
-## Render Deployment
+## Architecture Overview
 
-### Prerequisites
-- Node.js 20.11.0+ (specified in render.yaml)
-- Git repository with your code
+### Main Server (Port 10000)
+- **AI Agent Backend API** - Main server handling container management and AI operations
+- **Browser Agent Proxy** - Forwards browser requests to the browser agent subprocess
+- **Cloud Container Manager** - Manages project creation and command execution
+- **Health Check** - Provides deployment status and health monitoring
 
-### Why Degit is Better for Cloud Deployment
-The system now uses `degit` as the primary fallback strategy because:
-- **No Node.js version constraints** - Works with any Node.js version
-- **Faster** - Only downloads template files, not full Git history
-- **More reliable** - Fewer network dependencies and simpler operation
-- **Cloud-friendly** - Better suited for containerized environments
+### Browser Agent (Port 10001)
+- **Playwright Integration** - Automated browser interaction for web scraping and testing
+- **Subprocess Management** - Runs as a separate process managed by the main server
+- **Automatic Startup** - Starts automatically when the main server starts
+- **Graceful Shutdown** - Properly terminated when the main server shuts down
 
-### Template Support
+### Service Integration
+The browser agent is now fully integrated into the main server:
+1. **Main server starts** on port 10000
+2. **Browser agent subprocess** starts automatically on port 10001
+3. **Proxy endpoint** `/api/browse` forwards requests to the browser agent
+4. **Dependency management** - All required packages are installed automatically
+5. **Error handling** - Fallback mechanisms for browser agent failures
+
+## Template Support
 The system supports all standard Vite templates via degit:
 - `react-ts` (default) - React with TypeScript
 - `react` - React with JavaScript
@@ -44,6 +60,19 @@ The system supports all standard Vite templates via degit:
 - `lit` - Lit with JavaScript
 - `preact-ts` - Preact with TypeScript
 - `preact` - Preact with JavaScript
+
+## Render Deployment
+
+### Prerequisites
+- Node.js 20.11.0+ (specified in render.yaml)
+- Git repository with your code
+
+### Why Degit is Better for Cloud Deployment
+The system now uses `degit` as the primary fallback strategy because:
+- **No Node.js version constraints** - Works with any Node.js version
+- **Faster** - Only downloads template files, not full Git history
+- **More reliable** - Fewer network dependencies and simpler operation
+- **Cloud-friendly** - Better suited for containerized environments
 
 ### Configuration
 The `render.yaml` file has been optimized for:
@@ -99,14 +128,22 @@ The service includes a health check endpoint at `/health` that Render uses to ve
 - Fallback to React TypeScript if template not specified
 - Works with React, Vue, Svelte, Lit, Preact, and Vanilla projects
 
-#### 4. Missing Dependencies
+#### 4. Browser Agent and Playwright Issues
+**Problem**: "Cannot find package 'playwright'" or browser agent errors
+**Solution**: 
+- Added `playwright` and `node-fetch` to backend dependencies
+- Integrated browser agent into main server process
+- Automatic browser installation during deployment
+- Proxy endpoint for browser requests
+
+#### 5. Missing Dependencies
 **Problem**: `nodemon: not found` or similar dependency errors
 **Solution**: 
 - Updated package.json with proper engines field
 - Better dependency validation before command execution
 - Fallback strategies for missing dev dependencies
 
-#### 5. Command Execution Failures
+#### 6. Command Execution Failures
 **Problem**: Various npm/npx commands failing in cloud environment
 **Solution**: 
 - Enhanced command preprocessing with Node.js version detection

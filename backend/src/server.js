@@ -2,6 +2,11 @@ import express from 'express';
 import cors from 'cors';
 import { DockerContainerManager } from './containerManager.js';
 import { CloudContainerManager } from './cloudContainerManager.js';
+import { spawn } from 'child_process';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 // Use Render's recommended port with their default fallback
@@ -23,6 +28,35 @@ if (isCloudEnvironment) {
 } else {
   console.log('🐳 Local environment detected - using DockerContainerManager');
   containerManager = new DockerContainerManager();
+}
+
+// Start browser agent as a separate process
+let browserAgentProcess;
+function startBrowserAgent() {
+  try {
+    const browserAgentPath = path.join(__dirname, '..', 'browser-agent', 'server.js');
+    console.log('🌐 Starting Browser Agent subprocess...');
+    
+    browserAgentProcess = spawn('node', [browserAgentPath], {
+      stdio: 'inherit',
+      env: {
+        ...process.env,
+        BROWSER_PORT: '10001'
+      }
+    });
+
+    browserAgentProcess.on('error', (error) => {
+      console.error('❌ Browser Agent failed to start:', error);
+    });
+
+    browserAgentProcess.on('exit', (code) => {
+      console.log(`🌐 Browser Agent exited with code ${code}`);
+    });
+
+    console.log('✅ Browser Agent started on port 10001');
+  } catch (error) {
+    console.error('❌ Failed to start Browser Agent:', error);
+  }
 }
 
 // Basic middleware
@@ -147,7 +181,7 @@ app.post('/api/container/write', async (req, res) => {
 app.post('/api/container/list', async (req, res) => {
   try {
     const { dirPath, workingDir = '/workspace' } = req.body;
-    console.log(`📁 Listing directory: ${dirPath}`);
+    console.log(`�� Listing directory: ${dirPath}`);
     
     const container = await containerManager.getActiveContainer();
     if (!container) {
@@ -342,6 +376,29 @@ app.use('*', (req, res) => {
   });
 });
 
+// Browser agent proxy endpoint
+app.post('/api/browse', async (req, res) => {
+  try {
+    const fetch = (await import('node-fetch')).default;
+    const response = await fetch('http://localhost:10001/api/browse', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(req.body),
+    });
+    
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('❌ Browser proxy failed:', error);
+    res.status(500).json({ 
+      error: 'Browser agent unavailable',
+      details: error.message 
+    });
+  }
+});
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err);
@@ -354,11 +411,19 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`🌐 Server running on http://0.0.0.0:${port}`);
   console.log(`📋 Health check: http://0.0.0.0:${port}/health`);
   console.log(`🔧 Container manager: ${isCloudEnvironment ? 'CloudContainerManager' : 'DockerContainerManager'}`);
+  startBrowserAgent(); // Start the browser agent
 });
 
 // Graceful shutdown
 process.on('SIGTERM', () => {
   console.log('🛑 Received SIGTERM, shutting down gracefully');
+  
+  // Close browser agent process
+  if (browserAgentProcess) {
+    console.log('🌐 Stopping Browser Agent...');
+    browserAgentProcess.kill('SIGTERM');
+  }
+  
   containerManager.cleanup().finally(() => {
     process.exit(0);
   });
@@ -366,6 +431,13 @@ process.on('SIGTERM', () => {
 
 process.on('SIGINT', () => {
   console.log('🛑 Received SIGINT, shutting down gracefully');
+  
+  // Close browser agent process
+  if (browserAgentProcess) {
+    console.log('🌐 Stopping Browser Agent...');
+    browserAgentProcess.kill('SIGTERM');
+  }
+  
   containerManager.cleanup().finally(() => {
     process.exit(0);
   });

@@ -27,7 +27,7 @@ export interface ContainerInterface {
 
 export class DockerContainerInterface implements ContainerInterface {
   private baseUrl: string;
-  private workingDir = '/workspace';
+  private workingDir = '/workspace/agent-workspace';
   private isInitialized = false;
   
   constructor() {

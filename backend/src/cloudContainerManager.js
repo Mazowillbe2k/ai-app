@@ -27,6 +27,9 @@ export class CloudContainerManager {
     this.workspaceDir = process.env.NODE_ENV === 'production' ? '/workspace/projects' : path.resolve('./workspace');
     this.isCloudMode = true;
     this.ensureWorkspaceExists();
+    this.agentWorkspaceDir = '/workspace/agent-workspace';
+    fs.ensureDirSync(this.agentWorkspaceDir);
+    fs.emptyDirSync(this.agentWorkspaceDir);
   }
 
   async ensureWorkspaceExists() {

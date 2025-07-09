@@ -10,6 +10,7 @@ interface ThinkingBubble {
   startTime: number;
   duration?: number;
   status: 'thinking' | 'completed';
+  type?: 'planning' | 'analysis' | 'decision' | 'observation';
 }
 
 interface ToolSummary {
@@ -32,6 +33,12 @@ interface ToolSummary {
     image?: string;
     favicon?: string;
   };
+  // Enhanced information
+  output?: string;
+  error?: string;
+  parameters?: any;
+  result?: any;
+  showDetails?: boolean;
 }
 
 export default function ChatInterface() {
@@ -98,23 +105,69 @@ export default function ChatInterface() {
         
         // Create or update tool summary with enhanced information
         const getDetailedDescription = (toolName: string, result: any, parameters: any) => {
+          const isSuccess = result?.success;
+          const output = result?.output || '';
+          const error = result?.error || '';
+          
           switch (toolName) {
             case 'startup':
-              return `Created ${parameters?.project_name || 'project'} with ${parameters?.framework || 'React'} framework`;
+              if (isSuccess) {
+                return `✅ Created ${parameters?.project_name || 'project'} with ${parameters?.framework || 'React'} framework successfully`;
+              } else {
+                return `❌ Failed to create project: ${error}`;
+              }
             case 'edit_file':
-              return `Edited ${parameters?.relative_file_path || 'file'} - ${parameters?.instructions || 'File updated'}`;
+              if (isSuccess) {
+                return `✅ Edited ${parameters?.relative_file_path || 'file'} - ${parameters?.instructions || 'File updated successfully'}`;
+              } else {
+                return `❌ Failed to edit ${parameters?.relative_file_path || 'file'}: ${error}`;
+              }
             case 'read_file':
-              return `Read ${parameters?.relative_file_path || 'file'}`;
+              if (isSuccess) {
+                const content = output.substring(0, 100);
+                return `✅ Read ${parameters?.relative_file_path || 'file'} (${content.length} chars)`;
+              } else {
+                return `❌ Failed to read ${parameters?.relative_file_path || 'file'}: ${error}`;
+              }
             case 'bash':
-              return `Executed: ${parameters?.command || 'command'}`;
+              if (isSuccess) {
+                const command = parameters?.command || 'command';
+                const outputPreview = output.substring(0, 100);
+                return `✅ Executed: ${command}${outputPreview ? ` - ${outputPreview}` : ''}`;
+              } else {
+                return `❌ Command failed: ${parameters?.command || 'command'} - ${error}`;
+              }
             case 'web_scrape':
-              return `Scraped ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page content extracted'}`;
+              if (isSuccess) {
+                return `✅ Scraped ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page content extracted'}`;
+              } else {
+                return `❌ Failed to scrape ${parameters?.url || 'website'}: ${error}`;
+              }
             case 'browse':
-              return `Browsed ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page visited'}`;
+              if (isSuccess) {
+                return `✅ Browsed ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page visited'}`;
+              } else {
+                return `❌ Failed to browse ${parameters?.url || 'website'}: ${error}`;
+              }
             case 'ls':
-              return `Listed directory ${parameters?.relative_dir_path || parameters?.path || '.'} - ${result?.metadata?.fileCount || 0} items`;
+              if (isSuccess) {
+                const fileCount = result?.metadata?.fileCount || 0;
+                return `✅ Listed directory ${parameters?.relative_dir_path || parameters?.path || '.'} - Found ${fileCount} items`;
+              } else {
+                return `❌ Failed to list directory: ${error}`;
+              }
+            case 'npm':
+              if (isSuccess) {
+                return `✅ npm ${parameters?.command || 'command'} completed successfully`;
+              } else {
+                return `❌ npm ${parameters?.command || 'command'} failed: ${error}`;
+              }
             default:
-              return `${toolName} - ${result?.output?.substring(0, 100) || 'Operation completed'}`;
+              if (isSuccess) {
+                return `✅ ${toolName} completed successfully${output ? ` - ${output.substring(0, 100)}` : ''}`;
+              } else {
+                return `❌ ${toolName} failed: ${error}`;
+              }
           }
         };
 
@@ -146,7 +199,13 @@ export default function ChatInterface() {
           status: execution.status === 'completed' ? 'completed' : execution.status === 'failed' ? 'failed' : 'running',
           // Include screenshot and metadata for web scraping
           screenshot: execution.toolName === 'web_scrape' ? execution.result.metadata?.screenshot : undefined,
-          metadata: execution.toolName === 'web_scrape' ? execution.result.metadata : undefined
+          metadata: execution.toolName === 'web_scrape' ? execution.result.metadata : undefined,
+          // Enhanced information
+          output: execution.result?.output,
+          error: execution.result?.error,
+          parameters: execution.parameters,
+          result: execution.result,
+          showDetails: false
         };
         
         // Update existing summary or add new one
@@ -406,7 +465,13 @@ export default function ChatInterface() {
         }`}>
           <div className="flex items-center justify-between">
             <span className={`text-sm font-medium ${isActive ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-400'}`}>
-              {isActive ? '🧠 AI is thinking...' : `💭 Thought for ${duration}s`}
+              {isActive ? 
+                (bubble.type === 'analysis' ? '🔍 Analyzing tool results...' : 
+                 bubble.type === 'planning' ? '📋 Planning next steps...' : 
+                 bubble.type === 'decision' ? '🤔 Making decision...' :
+                 bubble.type === 'observation' ? '👁️ Observing results...' :
+                 '🧠 AI is thinking...') : 
+                `💭 ${bubble.type === 'analysis' ? 'Analysis' : bubble.type === 'planning' ? 'Planning' : bubble.type === 'decision' ? 'Decision' : bubble.type === 'observation' ? 'Observation' : 'Thought'} for ${duration}s`}
             </span>
             {isActive && (
               <div className="flex items-center space-x-2">
@@ -523,8 +588,43 @@ export default function ChatInterface() {
             </div>
           </div>
           <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-            {summary.description.length > 150 ? `${summary.description.substring(0, 150)}...` : summary.description}
+            {summary.description}
           </p>
+          
+          {/* Show detailed output/error information */}
+          {(summary.output || summary.error) && (
+            <div className="mt-2 mb-2">
+              <button
+                onClick={() => setToolSummaries(prev => prev.map(s => 
+                  s.id === summary.id ? { ...s, showDetails: !s.showDetails } : s
+                ))}
+                className="text-xs text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline"
+              >
+                {summary.showDetails ? 'Hide details' : 'Show details'}
+              </button>
+              
+              {summary.showDetails && (
+                <div className="mt-2 p-2 bg-gray-50 dark:bg-gray-800 rounded text-xs">
+                  {summary.output && (
+                    <div className="mb-2">
+                      <div className="font-medium text-green-700 dark:text-green-300 mb-1">Output:</div>
+                      <pre className="whitespace-pre-wrap text-gray-600 dark:text-gray-400 max-h-32 overflow-y-auto">
+                        {summary.output}
+                      </pre>
+                    </div>
+                  )}
+                  {summary.error && (
+                    <div>
+                      <div className="font-medium text-red-700 dark:text-red-300 mb-1">Error:</div>
+                      <pre className="whitespace-pre-wrap text-red-600 dark:text-red-400 max-h-32 overflow-y-auto">
+                        {summary.error}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
           
           {/* Show progress bar for running tools with progress */}
           {summary.status === 'running' && summary.progress && renderProgressBar(summary.progress)}

@@ -267,7 +267,20 @@ export class DockerContainerInterface implements ContainerInterface {
     }
     
     const result = await response.json();
-    return result.url;
+    
+    // Handle enhanced response format with metadata
+    if (result && result.url) {
+      console.log(`🌐 Preview URL: ${result.url}`);
+      if (result.metadata) {
+        console.log(`📋 Project: ${result.metadata.projectName || 'Unknown'}`);
+        if (result.metadata.note) {
+          console.log(`💡 Note: ${result.metadata.note}`);
+        }
+      }
+      return result.url;
+    }
+    
+    return result.url || null;
   }
 
   async cleanup(): Promise<void> {

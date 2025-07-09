@@ -279,6 +279,25 @@ export class ToolExecutionService {
       await this.container.executeCommand(`cd ${project_name} && npx shadcn-ui@latest init --yes --style default --color ${shadcn_theme}`);
     }
     
+    // Configure dev server to use port 3000 to avoid conflicts with backend (port 10000)
+    if (result.exitCode === 0 && (framework.includes('vite') || framework.includes('react'))) {
+      console.log(`🔧 Configuring dev server for port 3000...`);
+      
+      const viteConfig = `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000,
+    host: '0.0.0.0'
+  }
+})`;
+      
+      await this.container.writeFile(`${project_name}/vite.config.ts`, viteConfig);
+      console.log(`✅ Vite config created with port 3000`);
+    }
+    
     return {
       success: result.exitCode === 0,
       output: `Project ${project_name} created successfully with ${framework}${framework.includes('shadcn') ? ` (${shadcn_theme} theme)` : ''}`,

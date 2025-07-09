@@ -577,6 +577,23 @@ export default App`;
         
         // Configure dev server to use port 3000 to avoid conflict with backend (port 10000)
         await this.configureDevServer(projectPath);
+        
+        // Also install dependencies immediately to avoid issues
+        logger.info(`📦 Installing dependencies for immediate use...`);
+        try {
+          const installResult = await execAsync('npm install', {
+            cwd: projectPath,
+            timeout: 60000,
+            env: {
+              ...process.env,
+              HOME: projectPath,
+              npm_config_cache: path.join(projectPath, '.npm')
+            }
+          });
+          logger.info(`✅ Dependencies installed for immediate use`);
+        } catch (installError) {
+          logger.warn(`⚠️ Dependency installation warning: ${installError.message}`);
+        }
       } else {
         logger.error(`❌ Project directory not found: ${projectPath}`);
       }
@@ -949,7 +966,14 @@ export default defineConfig({
         throw new Error(`Container ${containerId} not found`);
       }
 
-      const baseDir = workingDir || container.projectDir;
+      // Only search within the project directory, not the entire workspace
+      const baseDir = workingDir || container.workingDir || container.projectDir;
+      
+      // If no project directory exists yet, return empty
+      if (!baseDir || !await fs.pathExists(baseDir)) {
+        return { files: [] };
+      }
+      
       const files = [];
 
       // Recursive function to find files
@@ -993,11 +1017,60 @@ export default defineConfig({
     }
   }
 
-  // Get preview URL (simulated for cloud)
-  async getPreviewUrl(_containerId) {
-    // In cloud mode, we can't run actual dev servers
-    // Return a simulated URL or null
-    return { url: null };
+  // Get preview URL for cloud deployment
+  async getPreviewUrl(containerId) {
+    try {
+      const container = this.containers.get(containerId);
+      if (!container) {
+        return { url: null };
+      }
+
+      // Check if there's a package.json with dev script in the project
+      const packageJsonPath = path.join(container.workingDir || container.projectDir, 'package.json');
+      
+      if (await fs.pathExists(packageJsonPath)) {
+        try {
+          const packageJson = await fs.readJson(packageJsonPath);
+          
+          // If this has dev scripts, it's likely a web project
+          if (packageJson.scripts && (packageJson.scripts.dev || packageJson.scripts.start)) {
+            // In cloud deployment, generate preview URL based on project structure
+            // Since we're running on Render, we can't expose random ports directly
+            // Instead, indicate that the project is ready for local development
+            const projectName = container.name;
+            
+            return { 
+              url: `http://localhost:3000`,
+              metadata: {
+                projectName,
+                ready: true,
+                devCommand: packageJson.scripts.dev || packageJson.scripts.start,
+                note: 'Run `npm run dev` in the project directory to start the development server'
+              }
+            };
+          }
+        } catch (jsonError) {
+          logger.warn(`Could not read package.json: ${jsonError.message}`);
+        }
+      }
+      
+      // For static HTML projects or other types
+      const indexPath = path.join(container.workingDir || container.projectDir, 'index.html');
+      if (await fs.pathExists(indexPath)) {
+        return { 
+          url: `file://${indexPath}`,
+          metadata: {
+            type: 'static',
+            note: 'Static HTML file'
+          }
+        };
+      }
+      
+      return { url: null };
+    } catch (error) {
+      logger.error(`Failed to generate preview URL: ${error.message}`);
+      return { url: null };
+    }
   }
 
   async getWorkingDirectory() {

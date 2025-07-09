@@ -307,7 +307,15 @@ app.get('/api/container/preview-url', async (req, res) => {
     
     const containerId = container.id || container;
     const result = await containerManager.getPreviewUrl(containerId);
-    res.json(result);
+    
+    // Handle both old and new return formats
+    if (result && typeof result === 'object' && result.url !== undefined) {
+      console.log(`✅ Preview URL generated: ${result.url}`);
+      res.json(result);
+    } else {
+      console.log('⚠️ No preview URL available');
+      res.json({ url: null });
+    }
   } catch (error) {
     console.error('❌ Preview URL check failed:', error);
     res.json({ url: null });

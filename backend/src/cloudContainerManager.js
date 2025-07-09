@@ -169,7 +169,8 @@ export class CloudContainerManager {
         const execOptions = { 
           cwd: execDir,
           maxBuffer: 10 * 1024 * 1024,
-          timeout: 60000, // 1 minute timeout - more reasonable for cloud
+          // Remove timeout for npm install commands to allow longer installation times
+          timeout: processedCommand.includes('npm install') ? undefined : 60000,
           env: {
             ...process.env,
             HOME: execDir, // Set HOME to project directory to avoid permission issues
@@ -275,7 +276,8 @@ export class CloudContainerManager {
       const execOptions = {
         cwd: execDir,
         maxBuffer: 10 * 1024 * 1024,
-        timeout: 60000,
+        // Remove timeout for degit commands to allow longer download times
+        timeout: undefined,
         env: {
           ...process.env,
           HOME: execDir,
@@ -547,7 +549,8 @@ export default App`;
         const installOptions = {
           cwd: projectPath,
           maxBuffer: 10 * 1024 * 1024,
-          timeout: 120000, // 2 minutes for npm install in cloud environment
+          // Remove timeout for npm install to allow unlimited time
+          timeout: undefined,
           env: {
             ...process.env,
             // Use global npm cache to avoid permission issues

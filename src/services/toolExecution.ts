@@ -40,10 +40,7 @@ export class ToolExecutionService {
           console.log(`🚀 Mapped startup parameters:`, startupParams);
           return await this.startup(startupParams);
           
-        case 'task_agent':
-          const taskParams = this.mapTaskAgentParams(parameters);
-          console.log(`🤖 Mapped task_agent parameters:`, taskParams);
-          return await this.taskAgent(taskParams);
+
           
         case 'bash':
           const bashParams = {
@@ -216,7 +213,7 @@ export class ToolExecutionService {
           return {
             success: false,
             output: '',
-            error: `Unknown tool: ${toolName}. Available tools: startup, task_agent, bash, ls, glob, grep, read_file, delete_file, edit_file, string_replace, run_linter, versioning, suggestions, deploy, web_search, web_scrape, browse`
+            error: `Unknown tool: ${toolName}. Available tools: startup, bash, ls, glob, grep, read_file, delete_file, edit_file, string_replace, run_linter, versioning, suggestions, deploy, web_search, web_scrape, browse`
           };
       }
     } catch (error) {
@@ -271,6 +268,13 @@ export class ToolExecutionService {
         break;
       default:
         createCommand = `npx degit vitejs/vite/packages/create-vite/template-react-ts ${project_name}`;
+    }
+    
+    // First, check if the project directory already exists and clean it
+    const checkDirResult = await this.container.executeCommand(`ls -la ${project_name}`);
+    if (checkDirResult.exitCode === 0) {
+      console.log(`🗑️ Project directory ${project_name} already exists, cleaning it...`);
+      await this.container.executeCommand(`rm -rf ${project_name}`);
     }
     
     const result = await this.container.executeCommand(createCommand);
@@ -338,24 +342,7 @@ export default defineConfig({
     };
   }
 
-  private async taskAgent(params: { prompt: string; integrations: string[]; relative_file_paths: string[] }): Promise<ToolResult> {
-    const { prompt, integrations, relative_file_paths } = params;
-    
-    console.log(`🤖 Task Agent: ${prompt}`);
-    
-    // For now, we'll simulate the task agent by returning a structured response
-    // In a real implementation, this would launch an actual agent
-    return {
-      success: true,
-      output: `Task Agent completed: ${prompt}\n\nAgent Report:\n- Analyzed ${relative_file_paths.length} files\n- Used integrations: ${integrations.join(', ')}\n- Task completed successfully`,
-      metadata: {
-        prompt,
-        integrations,
-        files: relative_file_paths,
-        isTaskAgent: true
-      }
-    };
-  }
+
 
   private async bash(params: { command: string; starting_server: boolean; require_user_interaction: string }): Promise<ToolResult> {
     const { command, starting_server, require_user_interaction } = params;
@@ -401,22 +388,54 @@ export default defineConfig({
   private async glob(params: { pattern: string; exclude_pattern: string }): Promise<ToolResult> {
     const { pattern, exclude_pattern } = params;
     
-    // Simulate glob search by getting all files and filtering
-    const allFiles = await this.container.getAllFiles();
-    const filteredFiles = allFiles.filter(file => {
-      // Simple pattern matching (in a real implementation, use a proper glob library)
-      const matchesPattern = pattern === '*' || file.path.includes(pattern.replace('*', ''));
-      const excludeMatch = exclude_pattern ? file.path.includes(exclude_pattern.replace('*', '')) : false;
-      return matchesPattern && !excludeMatch;
-    });
+    // Use find command with proper glob patterns
+    let findCommand = `find . -type f`;
+    
+    // Convert glob pattern to find pattern
+    if (pattern !== '*') {
+      const findPattern = pattern
+        .replace(/\*/g, '*')  // Keep * as wildcard
+        .replace(/\?/g, '?')  // Keep ? as single char wildcard
+        .replace(/\[/g, '\\[') // Escape brackets
+        .replace(/\]/g, '\\]');
+      findCommand += ` -name "${findPattern}"`;
+    }
+    
+    // Add exclude pattern if specified
+    if (exclude_pattern) {
+      const excludePattern = exclude_pattern
+        .replace(/\*/g, '*')
+        .replace(/\?/g, '?')
+        .replace(/\[/g, '\\[')
+        .replace(/\]/g, '\\]');
+      findCommand += ` ! -name "${excludePattern}"`;
+    }
+    
+    const result = await this.container.executeCommand(findCommand);
+    
+    if (result.exitCode !== 0) {
+      return {
+        success: false,
+        output: '',
+        error: `Glob search failed: ${result.error}`,
+        metadata: {
+          pattern,
+          excludePattern: exclude_pattern,
+          isRealGlob: true
+        }
+      };
+    }
+    
+    const files = result.output.split('\n').filter(line => line.trim() !== '');
     
     return {
       success: true,
-      output: filteredFiles.map(f => f.path).join('\n'),
+      output: files.join('\n'),
       metadata: {
         pattern,
         excludePattern: exclude_pattern,
-        matchCount: filteredFiles.length
+        matchCount: files.length,
+        isRealGlob: true
       }
     };
   }
@@ -424,28 +443,44 @@ export default defineConfig({
   private async grep(params: { query: string; case_sensitive: boolean; include_pattern: string; exclude_pattern: string }): Promise<ToolResult> {
     const { query, case_sensitive, include_pattern, exclude_pattern } = params;
     
-    const allFiles = await this.container.getAllFiles();
-    const results: string[] = [];
+    // Build grep command with proper options
+    let grepCommand = 'grep';
     
-    for (const file of allFiles) {
-      // Filter by file patterns
-      if (include_pattern && !file.path.includes(include_pattern.replace('*', ''))) continue;
-      if (exclude_pattern && file.path.includes(exclude_pattern.replace('*', ''))) continue;
-      
-      const content = file.content;
-      const lines = content.split('\n');
-      
-      lines.forEach((line, index) => {
-        const searchLine = case_sensitive ? line : line.toLowerCase();
-        const searchQuery = case_sensitive ? query : query.toLowerCase();
-        
-        if (searchLine.includes(searchQuery)) {
-          results.push(`${file.path}:${index + 1}:${line}`);
-        }
-      });
-      
-      if (results.length >= 50) break; // Cap at 50 results
+    if (!case_sensitive) {
+      grepCommand += ' -i';
     }
+    
+    grepCommand += ' -n'; // Show line numbers
+    
+    if (include_pattern) {
+      grepCommand += ` --include="${include_pattern}"`;
+    }
+    
+    if (exclude_pattern) {
+      grepCommand += ` --exclude="${exclude_pattern}"`;
+    }
+    
+    // Escape special regex characters in the query
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    grepCommand += ` "${escapedQuery}" .`;
+    
+    const result = await this.container.executeCommand(grepCommand);
+    
+    // grep returns exit code 1 when no matches found, which is not an error
+    if (result.exitCode !== 0 && result.exitCode !== 1) {
+      return {
+        success: false,
+        output: '',
+        error: `Grep search failed: ${result.error}`,
+        metadata: {
+          query,
+          caseSensitive: case_sensitive,
+          isRealGrep: true
+        }
+      };
+    }
+    
+    const results = result.output.split('\n').filter(line => line.trim() !== '');
     
     return {
       success: true,
@@ -453,7 +488,8 @@ export default defineConfig({
       metadata: {
         query,
         caseSensitive: case_sensitive,
-        matchCount: results.length
+        matchCount: results.length,
+        isRealGrep: true
       }
     };
   }
@@ -621,24 +657,61 @@ export default defineConfig({
     
     console.log(`🔍 Web search: ${search_term}`);
     
-    // For now, simulate web search results
-    const simulatedResults = [
-      `Search results for "${search_term}":`,
-      `1. ${search_term} documentation - Official docs`,
-      `2. ${search_term} tutorial - Learn the basics`,
-      `3. ${search_term} examples - Code samples`,
-      `4. ${search_term} best practices - Tips and tricks`
-    ].join('\n');
+    // Use curl to perform a real web search via DuckDuckGo
+    const searchCommand = `curl -s "https://api.duckduckgo.com/?q=${encodeURIComponent(search_term)}&format=json&no_html=1&skip_disambig=1"`;
+    const result = await this.container.executeCommand(searchCommand);
     
-    return {
-      success: true,
-      output: simulatedResults,
-      metadata: {
-        searchTerm: search_term,
-        resultCount: 4,
-        isSimulated: true
+    if (result.exitCode !== 0) {
+      return {
+        success: false,
+        output: '',
+        error: `Web search failed: ${result.error}`,
+        metadata: {
+          searchTerm: search_term,
+          isRealWebSearch: true
+        }
+      };
+    }
+    
+    try {
+      const searchData = JSON.parse(result.output);
+      const results = [];
+      
+      if (searchData.Abstract) {
+        results.push(`Abstract: ${searchData.Abstract}`);
       }
-    };
+      
+      if (searchData.RelatedTopics && searchData.RelatedTopics.length > 0) {
+        results.push('Related topics:');
+        searchData.RelatedTopics.slice(0, 5).forEach((topic: any, index: number) => {
+          if (topic.Text) {
+            results.push(`${index + 1}. ${topic.Text}`);
+          }
+        });
+      }
+      
+      const output = results.length > 0 ? results.join('\n') : 'No search results found';
+      
+      return {
+        success: true,
+        output,
+        metadata: {
+          searchTerm: search_term,
+          resultCount: results.length,
+          isRealWebSearch: true
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        output: '',
+        error: `Failed to parse search results: ${error}`,
+        metadata: {
+          searchTerm: search_term,
+          isRealWebSearch: true
+        }
+      };
+    }
   }
 
   private async webScrape(params: { url: string; selector?: string }): Promise<ToolResult> {
@@ -705,7 +778,7 @@ export default defineConfig({
   }
 
   private async deploy(params: { project_directory: string; platform: string; config?: any }): Promise<ToolResult> {
-    const { project_directory, platform, config: _config } = params;
+    const { project_directory, platform, config } = params;
     
     console.log(`🚀 Deploy to ${platform}: ${project_directory}`);
     
@@ -721,8 +794,48 @@ export default defineConfig({
       };
     }
     
-    // Simulate deployment
-    const deploymentUrl = `https://${project_directory.replace(/[^a-z0-9]/g, '-')}.${platform}.app`;
+    // Deploy based on platform
+    let deployCommand = '';
+    let deploymentUrl = '';
+    
+    switch (platform.toLowerCase()) {
+      case 'vercel':
+        deployCommand = `cd ${project_directory} && npx vercel --yes`;
+        break;
+      case 'netlify':
+        deployCommand = `cd ${project_directory} && npx netlify-cli deploy --prod --dir=dist`;
+        break;
+      case 'render':
+        deployCommand = `cd ${project_directory} && npx render-cli deploy`;
+        break;
+      case 'railway':
+        deployCommand = `cd ${project_directory} && npx @railway/cli deploy`;
+        break;
+      default:
+        return {
+          success: false,
+          output: '',
+          error: `Unsupported platform: ${platform}. Supported platforms: vercel, netlify, render, railway`,
+          metadata: { platform, projectDirectory: project_directory }
+        };
+    }
+    
+    const deployResult = await this.container.executeCommand(deployCommand);
+    
+    if (deployResult.exitCode !== 0) {
+      return {
+        success: false,
+        output: deployResult.output,
+        error: deployResult.error || 'Deployment failed',
+        metadata: { platform, projectDirectory: project_directory }
+      };
+    }
+    
+    // Extract deployment URL from output
+    const urlMatch = deployResult.output.match(/https?:\/\/[^\s]+/);
+    if (urlMatch) {
+      deploymentUrl = urlMatch[0];
+    }
     
     return {
       success: true,
@@ -731,8 +844,7 @@ export default defineConfig({
         platform,
         projectDirectory: project_directory,
         deploymentUrl,
-        isSimulated: true,
-        isRealContainer: true
+        isRealDeployment: true
       }
     };
   }
@@ -852,13 +964,7 @@ export default defineConfig({
     };
   }
 
-  private mapTaskAgentParams(parameters: any): any {
-    return {
-      prompt: parameters.prompt || parameters.description || parameters.task || '',
-      integrations: parameters.integrations || parameters.tools || parameters.services || [],
-      relative_file_paths: parameters.relative_file_paths || parameters.files || parameters.file_paths || []
-    };
-  }
+
 
   private mapVersioningParams(parameters: any): any {
     // Handle changelog - convert string to array if needed

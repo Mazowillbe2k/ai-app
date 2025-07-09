@@ -10,7 +10,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 const app = express();
 // Use Render's recommended port with their default fallback
-const port = process.env.PORT || 10000;
+const port = process.env.PORT || 3001;
 
 console.log('🚀 Starting AI Agent Backend Server...');
 console.log('📍 Working directory:', process.cwd());

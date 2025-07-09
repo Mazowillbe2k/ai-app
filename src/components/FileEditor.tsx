@@ -339,8 +339,9 @@ export function FileEditor({ onFileChange, onFileSave }: FileEditorProps) {
           {files.length === 0 ? (
             <div className="text-center text-gray-500 dark:text-gray-400 py-8">
               <File className="w-8 h-8 mx-auto mb-2" />
-              <p className="text-sm">Empty workspace</p>
-              <p className="text-xs mt-1">Ask the AI to create an app and files will appear here</p>
+              <p className="text-sm">No project files yet</p>
+              <p className="text-xs mt-1">Ask the AI to create an app and project files will appear here</p>
+              <p className="text-xs mt-1 text-blue-500">Try: "Create a React app" or "Build a todo app"</p>
             </div>
           ) : (
             <div className="space-y-1">

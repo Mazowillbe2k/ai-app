@@ -368,14 +368,6 @@ app.post('/api/container/set-working-dir', async (req, res) => {
   }
 });
 
-// 404 handler
-app.use('*', (req, res) => {
-  res.status(404).json({ 
-    error: 'Route not found',
-    availableRoutes: ['/health', '/api/status', '/api/container/*']
-  });
-});
-
 // Browser agent proxy endpoint
 app.post('/api/browse', async (req, res) => {
   try {
@@ -399,6 +391,14 @@ app.post('/api/browse', async (req, res) => {
   }
 });
 
+// 404 handler
+app.use('*', (req, res) => {
+  res.status(404).json({ 
+    error: 'Route not found',
+    availableRoutes: ['/health', '/api/status', '/api/container/*', '/api/browse']
+  });
+});
+
 // Error handling
 app.use((err, req, res, next) => {
   console.error('❌ Error:', err);
@@ -411,7 +411,9 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`🌐 Server running on http://0.0.0.0:${port}`);
   console.log(`📋 Health check: http://0.0.0.0:${port}/health`);
   console.log(`🔧 Container manager: ${isCloudEnvironment ? 'CloudContainerManager' : 'DockerContainerManager'}`);
-  startBrowserAgent(); // Start the browser agent
+  
+  // Start the browser agent
+  startBrowserAgent();
 });
 
 // Graceful shutdown

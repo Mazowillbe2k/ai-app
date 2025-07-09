@@ -11,10 +11,11 @@ This document provides instructions for deploying the AI Agent Platform to vario
 - **Added fallback strategies** for Vite project creation when using older Node.js versions
 - **Enhanced error handling** with automatic project creation fallbacks
 
-### Browser Agent Integration
+### Browser Agent Integration  
+- **Created missing browser-agent directory** - Added proper browser agent server with playwright integration
 - **Fixed missing dependencies** - Added `playwright` and `node-fetch` to backend dependencies
 - **Integrated browser agent** - Browser agent now starts automatically with the main server
-- **Added proxy endpoint** - Main server forwards browser requests to browser agent
+- **Added proxy endpoint** - Main server forwards browser requests to browser agent at `/api/browse`
 - **Automatic browser installation** - Playwright browsers install automatically during deployment
 
 ### Cloud Container Manager Enhancements
@@ -28,7 +29,7 @@ This document provides instructions for deploying the AI Agent Platform to vario
 
 ### Main Server (Port 10000)
 - **AI Agent Backend API** - Main server handling container management and AI operations
-- **Browser Agent Proxy** - Forwards browser requests to the browser agent subprocess
+- **Browser Agent Proxy** - Forwards browser requests to the browser agent subprocess at `/api/browse`
 - **Cloud Container Manager** - Manages project creation and command execution
 - **Health Check** - Provides deployment status and health monitoring
 
@@ -129,12 +130,13 @@ The service includes a health check endpoint at `/health` that Render uses to ve
 - Works with React, Vue, Svelte, Lit, Preact, and Vanilla projects
 
 #### 4. Browser Agent and Playwright Issues
-**Problem**: "Cannot find package 'playwright'" or browser agent errors
+**Problem**: "Cannot find package 'playwright'" or browser agent directory missing
 **Solution**: 
+- Created missing `browser-agent` directory with proper server.js file
 - Added `playwright` and `node-fetch` to backend dependencies
-- Integrated browser agent into main server process
+- Integrated browser agent into main server process as managed subprocess
 - Automatic browser installation during deployment
-- Proxy endpoint for browser requests
+- Proxy endpoint `/api/browse` for browser requests
 
 #### 5. Missing Dependencies
 **Problem**: `nodemon: not found` or similar dependency errors

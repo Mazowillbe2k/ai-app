@@ -1,11 +1,10 @@
 services:
   - type: web
-    name: ai-agent-backend
-    runtime: node
+    name: ai-agent-platform
+    runtime: docker
     plan: free
-    # Specify Node.js 20+ for Vite compatibility
-    buildCommand: cd backend && npm install
-    startCommand: cd backend && npm start
+    # Use the root-level Dockerfile
+    dockerfilePath: ./Dockerfile
     envVars:
       - key: NODE_ENV
         value: production

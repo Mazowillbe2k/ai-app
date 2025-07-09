@@ -202,11 +202,21 @@ export class ToolExecutionService {
           }
           return await this.webScrape(parameters);
           
+        case 'browse':
+          if (!parameters.url) {
+            return {
+              success: false,
+              output: '',
+              error: `browse tool requires: url (string). Got: ${JSON.stringify(parameters)}`
+            };
+          }
+          return await this.browse(parameters);
+          
         default:
           return {
             success: false,
             output: '',
-            error: `Unknown tool: ${toolName}. Available tools: startup, task_agent, bash, ls, glob, grep, read_file, delete_file, edit_file, string_replace, run_linter, versioning, suggestions, deploy, web_search, web_scrape`
+            error: `Unknown tool: ${toolName}. Available tools: startup, task_agent, bash, ls, glob, grep, read_file, delete_file, edit_file, string_replace, run_linter, versioning, suggestions, deploy, web_search, web_scrape, browse`
           };
       }
     } catch (error) {
@@ -588,20 +598,59 @@ export class ToolExecutionService {
   private async webScrape(params: { url: string; selector?: string }): Promise<ToolResult> {
     const { url, selector } = params;
     
-    console.log(`🕷️ Web scrape: ${url}`);
+    console.log(`��️ Web scrape: ${url}${selector ? ` (selector: ${selector})` : ''}`);
     
-    // For now, simulate web scraping
-    const simulatedContent = `Scraped content from ${url}${selector ? ` (selector: ${selector})` : ''}:\n\nThis is simulated scraped content. In a real implementation, this would fetch and parse the actual webpage.`;
-    
-    return {
-      success: true,
-      output: simulatedContent,
-      metadata: {
-        url,
-        selector,
-        isSimulated: true
+    try {
+      const browseResult = await this.container.browse(url);
+      
+      if (browseResult.error) {
+        return {
+          success: false,
+          output: '',
+          error: `Failed to browse to ${url}: ${browseResult.error}`
+        };
       }
-    };
+      
+      let content = browseResult.html;
+      
+      // If a selector is provided, try to extract that specific content
+      if (selector) {
+        // Basic selector extraction (for more complex selectors, you'd use a proper DOM parser)
+        const selectorRegex = new RegExp(`<[^>]*${selector}[^>]*>(.*?)<\/[^>]*>`, 'gsi');
+        const match = content.match(selectorRegex);
+        if (match) {
+          content = match[1];
+        } else {
+          console.warn(`⚠️ Selector "${selector}" not found in page content`);
+        }
+      }
+      
+      const formattedOutput = [
+        `🌐 Successfully scraped: ${url}`,
+        `📄 Page title: ${browseResult.title}`,
+        selector ? `🎯 Selector: ${selector}` : '',
+        '📝 Content:',
+        content.slice(0, 2000) + (content.length > 2000 ? '...' : '')
+      ].filter(Boolean).join('\n');
+      
+      return {
+        success: true,
+        output: formattedOutput,
+        metadata: {
+          url,
+          title: browseResult.title,
+          selector,
+          contentLength: content.length,
+          isRealBrowser: true
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        output: '',
+        error: error instanceof Error ? error.message : 'Unknown error during web scraping'
+      };
+    }
   }
 
   private async deploy(params: { project_directory: string; platform: string; config?: any }): Promise<ToolResult> {
@@ -635,6 +684,48 @@ export class ToolExecutionService {
         isRealContainer: true
       }
     };
+  }
+
+  private async browse(params: { url: string }): Promise<ToolResult> {
+    const { url } = params;
+    
+    console.log(`🌐 Browse: ${url}`);
+    
+    try {
+      const result = await this.container.browse(url);
+      
+      if (result.error) {
+        return {
+          success: false,
+          output: '',
+          error: `Failed to browse to ${url}: ${result.error}`
+        };
+      }
+      
+      const formattedOutput = [
+        `🌐 Successfully browsed: ${url}`,
+        `📄 Page title: ${result.title}`,
+        '📝 Page content:',
+        result.html.slice(0, 3000) + (result.html.length > 3000 ? '\n\n...(content truncated for display)' : '')
+      ].join('\n');
+      
+      return {
+        success: true,
+        output: formattedOutput,
+        metadata: {
+          url,
+          title: result.title,
+          contentLength: result.html.length,
+          isRealBrowser: true
+        }
+      };
+    } catch (error) {
+      return {
+        success: false,
+        output: '',
+        error: error instanceof Error ? error.message : 'Unknown error during browsing'
+      };
+    }
   }
 
   private async suggestions(params: { suggestions: string[] }): Promise<ToolResult> {

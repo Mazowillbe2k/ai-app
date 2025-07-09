@@ -10,6 +10,7 @@ export interface ContainerInterface {
   setWorkingDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   getAllFiles: () => Promise<Array<{ path: string; content: string }>>;
   getPreviewUrl: () => Promise<string | null>;
+  browse: (url: string) => Promise<{ title: string; html: string; error?: string }>;
 }
 
 export class DockerContainerInterface implements ContainerInterface {
@@ -269,15 +270,58 @@ export class DockerContainerInterface implements ContainerInterface {
     return result.url;
   }
 
-  // Cleanup method (for API-based cleanup)
   async cleanup(): Promise<void> {
     try {
-      await fetch(`${this.baseUrl}/api/container/cleanup`, {
-        method: 'POST'
+      const response = await fetch(`${this.baseUrl}/api/container/cleanup`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' }
       });
-      console.log('✅ Container cleaned up successfully');
+      
+      if (response.ok) {
+        console.log('🧹 Container cleanup completed');
+      }
     } catch (error) {
-      console.warn('⚠️ Cleanup request failed:', error);
+      console.error('❌ Container cleanup failed:', error);
+    }
+  }
+
+  async browse(url: string): Promise<{ title: string; html: string; error?: string }> {
+    await this.ensureReady();
+    
+    console.log(`🌐 Browsing to: ${url}`);
+    
+    try {
+      const response = await fetch(`${this.baseUrl}/api/browse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      if (result.error) {
+        return {
+          title: '',
+          html: '',
+          error: result.error
+        };
+      }
+      
+      return {
+        title: result.title || 'No title',
+        html: result.html || '',
+        error: undefined
+      };
+    } catch (error) {
+      return {
+        title: '',
+        html: '',
+        error: error instanceof Error ? error.message : 'Unknown error occurred while browsing'
+      };
     }
   }
 }

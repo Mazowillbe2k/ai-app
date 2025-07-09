@@ -31,6 +31,7 @@ export class CloudContainerManager {
     fs.ensureDirSync(this.agentWorkspaceDir);
     fs.emptyDirSync(this.agentWorkspaceDir);
   }
+  
 
   async ensureWorkspaceExists() {
     try {

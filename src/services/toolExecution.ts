@@ -237,28 +237,40 @@ export class ToolExecutionService {
     
     switch (framework) {
       case 'react-vite':
-        createCommand = `npm create vite@latest ${project_name} -- --template react-ts --yes`;
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-react-ts ${project_name}`;
         break;
       case 'react-vite-tailwind':
-        createCommand = `npm create vite@latest ${project_name} -- --template react-ts --yes`;
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-react-ts ${project_name}`;
         break;
       case 'react-vite-shadcn':
-        createCommand = `npm create vite@latest ${project_name} -- --template react-ts --yes`;
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-react-ts ${project_name}`;
         break;
       case 'nextjs-shadcn':
         createCommand = `npx create-next-app@latest ${project_name} --typescript --tailwind --eslint --app --src-dir --import-alias="@/*" --yes`;
         break;
       case 'vue-vite':
-        createCommand = `npm create vue@latest ${project_name} -- --typescript --yes`;
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-vue-ts ${project_name}`;
         break;
       case 'vue-vite-tailwind':
-        createCommand = `npm create vue@latest ${project_name} -- --typescript --yes`;
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-vue-ts ${project_name}`;
+        break;
+      case 'svelte-vite':
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-svelte-ts ${project_name}`;
+        break;
+      case 'lit-vite':
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-lit-ts ${project_name}`;
+        break;
+      case 'preact-vite':
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-preact-ts ${project_name}`;
+        break;
+      case 'vanilla-vite':
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-vanilla-ts ${project_name}`;
         break;
       case 'html-ts-css':
-        createCommand = `mkdir ${project_name} && cd ${project_name} && echo '<!DOCTYPE html><html><head><title>${project_name}</title></head><body><h1>Hello World</h1></body></html>' > index.html`;
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-vanilla-ts ${project_name}`;
         break;
       default:
-        createCommand = `npm create vite@latest ${project_name} -- --template react-ts --yes`;
+        createCommand = `npx degit vitejs/vite/packages/create-vite/template-react-ts ${project_name}`;
     }
     
     const result = await this.container.executeCommand(createCommand);
@@ -267,6 +279,21 @@ export class ToolExecutionService {
     if (result.exitCode === 0) {
       console.log(`📂 Setting working directory to: ${project_name}`);
       await this.container.setWorkingDirectory(project_name);
+      
+      // For degit templates, we need to install dependencies with progress tracking
+      if (createCommand.includes('degit')) {
+        console.log(`📦 Installing dependencies for degit template...`);
+        
+        // Use executeCommandWithProgress for npm install to show progress
+        await this.container.executeCommandWithProgress(
+          `cd ${project_name} && npm install`,
+          (progress) => {
+            // Progress callback will be handled by the agenticAI service
+            // which will update the tool execution with progress
+            console.log(`📦 Progress: ${progress.current}/${progress.total} - ${progress.message}`);
+          }
+        );
+      }
     }
     
     // If using Tailwind or shadcn, install additional dependencies

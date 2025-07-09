@@ -20,6 +20,11 @@ interface ToolSummary {
   status: 'completed' | 'running' | 'failed';
   toolName?: string;
   screenshot?: string;
+  progress?: {
+    current: number;
+    total: number;
+    message?: string;
+  };
   metadata?: {
     url?: string;
     title?: string;
@@ -38,7 +43,6 @@ export default function ChatInterface() {
     agentThoughts, 
     agentActions,
     addMessage, 
-    setFiles, 
     setAgentStatus, 
     addToolExecution,
     addAgentThought,
@@ -92,61 +96,78 @@ export default function ChatInterface() {
       onToolExecution: (execution: ToolExecution) => {
         addToolExecution(execution);
         
-        // Create tool summary with enhanced information
-        if (execution.status === 'completed' || execution.status === 'failed') {
-          const getDetailedDescription = (toolName: string, result: any, parameters: any) => {
-            switch (toolName) {
-              case 'startup':
-                return `Created ${parameters?.project_name || 'project'} with ${parameters?.framework || 'React'} framework`;
-              case 'edit_file':
-                return `Edited ${parameters?.relative_file_path || 'file'} - ${parameters?.instructions || 'File updated'}`;
-              case 'read_file':
-                return `Read ${parameters?.relative_file_path || 'file'}`;
-              case 'bash':
-                return `Executed: ${parameters?.command || 'command'}`;
-              case 'web_scrape':
-                return `Scraped ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page content extracted'}`;
-              case 'browse':
-                return `Browsed ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page visited'}`;
-              case 'ls':
-                return `Listed directory ${parameters?.relative_dir_path || parameters?.path || '.'} - ${result?.metadata?.fileCount || 0} items`;
-              default:
-                return `${toolName} - ${result?.output?.substring(0, 100) || 'Operation completed'}`;
-            }
-          };
+        // Create or update tool summary with enhanced information
+        const getDetailedDescription = (toolName: string, result: any, parameters: any) => {
+          switch (toolName) {
+            case 'startup':
+              return `Created ${parameters?.project_name || 'project'} with ${parameters?.framework || 'React'} framework`;
+            case 'edit_file':
+              return `Edited ${parameters?.relative_file_path || 'file'} - ${parameters?.instructions || 'File updated'}`;
+            case 'read_file':
+              return `Read ${parameters?.relative_file_path || 'file'}`;
+            case 'bash':
+              return `Executed: ${parameters?.command || 'command'}`;
+            case 'web_scrape':
+              return `Scraped ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page content extracted'}`;
+            case 'browse':
+              return `Browsed ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page visited'}`;
+            case 'ls':
+              return `Listed directory ${parameters?.relative_dir_path || parameters?.path || '.'} - ${result?.metadata?.fileCount || 0} items`;
+            default:
+              return `${toolName} - ${result?.output?.substring(0, 100) || 'Operation completed'}`;
+          }
+        };
 
-          const getAffectedFiles = (toolName: string, result: any, parameters: any) => {
-            const files = [];
-            
-            if (parameters?.relative_file_path) {
-              files.push(parameters.relative_file_path);
-            }
-            if (parameters?.file_path) {
-              files.push(parameters.file_path);
-            }
-            if (result?.metadata?.files) {
-              files.push(...result.metadata.files);
-            }
-            if (result?.metadata?.projectName && toolName === 'startup') {
-              files.push(`${result.metadata.projectName}/package.json`, `${result.metadata.projectName}/src/`);
-            }
-            
-            return [...new Set(files)]; // Remove duplicates
-          };
+        const getAffectedFiles = (toolName: string, result: any, parameters: any) => {
+          const files = [];
+          
+          if (parameters?.relative_file_path) {
+            files.push(parameters.relative_file_path);
+          }
+          if (parameters?.file_path) {
+            files.push(parameters.file_path);
+          }
+          if (result?.metadata?.files) {
+            files.push(...result.metadata.files);
+          }
+          if (result?.metadata?.projectName && toolName === 'startup') {
+            files.push(`${result.metadata.projectName}/package.json`, `${result.metadata.projectName}/src/`);
+          }
+          
+          return [...new Set(files)]; // Remove duplicates
+        };
 
-          const summary: ToolSummary = {
-            id: execution.id,
-            toolName: execution.toolName,
-            description: getDetailedDescription(execution.toolName, execution.result, execution.parameters),
-            files: getAffectedFiles(execution.toolName, execution.result, execution.parameters),
-            duration: execution.duration,
-            status: execution.status === 'completed' ? 'completed' : 'failed',
-            // Include screenshot and metadata for web scraping
-            screenshot: execution.toolName === 'web_scrape' ? execution.result.metadata?.screenshot : undefined,
-            metadata: execution.toolName === 'web_scrape' ? execution.result.metadata : undefined
-          };
-          setToolSummaries(prev => [...prev, summary]);
-        }
+        const summary: ToolSummary = {
+          id: execution.id,
+          toolName: execution.toolName,
+          description: getDetailedDescription(execution.toolName, execution.result, execution.parameters),
+          files: getAffectedFiles(execution.toolName, execution.result, execution.parameters),
+          duration: execution.duration,
+          status: execution.status === 'completed' ? 'completed' : execution.status === 'failed' ? 'failed' : 'running',
+          // Include screenshot and metadata for web scraping
+          screenshot: execution.toolName === 'web_scrape' ? execution.result.metadata?.screenshot : undefined,
+          metadata: execution.toolName === 'web_scrape' ? execution.result.metadata : undefined
+        };
+        
+        // Update existing summary or add new one
+        setToolSummaries(prev => {
+          const existingIndex = prev.findIndex(s => s.id === execution.id);
+          if (existingIndex >= 0) {
+            const updated = [...prev];
+            updated[existingIndex] = summary;
+            return updated;
+          } else {
+            return [...prev, summary];
+          }
+        });
+      },
+      onProgress: (executionId: string, progress: { current: number; total: number; message?: string }) => {
+        // Update the tool summary with progress information
+        setToolSummaries(prev => prev.map(summary => 
+          summary.id === executionId 
+            ? { ...summary, progress, status: 'running' as const }
+            : summary
+        ));
       }
     });
   }, [addAgentThought, addAgentAction, addToolExecution]);
@@ -297,85 +318,8 @@ export default function ChatInterface() {
           : bubble
       ));
 
-      // Get all files created by AI in the container
-      const containerFiles = await agenticAI.getAllFilesFromContainer();
-      
-      // Convert container files to ProjectFile format for the editor
-      if (containerFiles.length > 0) {
-        const buildFileTree = (files: Array<{ path: string; content: string }>): ProjectFile[] => {
-          const tree: Record<string, ProjectFile> = {};
-          const roots: ProjectFile[] = [];
-
-          // First pass: create all file entries
-          files.forEach(file => {
-            const pathParts = file.path.split('/').filter(part => part !== '');
-            let currentPath = '';
-            
-            pathParts.forEach((part, index) => {
-              const parentPath = currentPath;
-              currentPath = currentPath ? `${currentPath}/${part}` : part;
-              
-              if (!tree[currentPath]) {
-                const isFile = index === pathParts.length - 1;
-                
-                tree[currentPath] = {
-                  id: crypto.randomUUID(),
-                  name: part,
-                  path: `/${currentPath}`,
-                  content: isFile ? file.content : '',
-                  language: isFile ? (
-                    file.path.endsWith('.tsx') || file.path.endsWith('.ts') ? 'typescript' : 
-                    file.path.endsWith('.css') ? 'css' : 
-                    file.path.endsWith('.json') ? 'json' : 
-                    file.path.endsWith('.js') || file.path.endsWith('.jsx') ? 'javascript' : 
-                    file.path.endsWith('.html') ? 'html' :
-                    file.path.endsWith('.md') ? 'markdown' : 'text'
-                  ) : 'folder',
-                  type: isFile ? 'file' : 'directory',
-                  children: isFile ? undefined : [],
-                  size: isFile ? file.content.length : 0,
-                  modified: new Date()
-                };
-              }
-            });
-          });
-
-          // Second pass: build the tree structure
-          Object.values(tree).forEach(item => {
-            const pathParts = item.path.split('/').filter(part => part !== '');
-            if (pathParts.length === 1) {
-              // Root level item
-              roots.push(item);
-            } else {
-              // Find parent and add as child
-              const parentPath = '/' + pathParts.slice(0, -1).join('/');
-              const parent = tree[parentPath.substring(1)]; // Remove leading slash for lookup
-              if (parent && parent.children) {
-                parent.children.push(item);
-              }
-            }
-          });
-
-          // Sort directories first, then files, alphabetically
-          const sortItems = (items: ProjectFile[]): ProjectFile[] => {
-            return items.sort((a, b) => {
-              if (a.type !== b.type) {
-                return a.type === 'directory' ? -1 : 1;
-              }
-              return a.name.localeCompare(b.name);
-            }).map(item => ({
-              ...item,
-              children: item.children ? sortItems(item.children) : undefined
-            }));
-          };
-
-          return sortItems(roots);
-        };
-
-        const projectFiles = buildFileTree(containerFiles);
-        setFiles(projectFiles);
-        console.log(`📁 Loaded file tree with ${containerFiles.length} files and ${projectFiles.length} root items from WebContainer`);
-      }
+      // Note: File loading is handled by the FileEditor component
+      // to avoid conflicts and ensure single source of truth
 
       // Set WebContainer preview URL - poll until available
       const checkForPreviewUrl = async () => {
@@ -522,24 +466,68 @@ export default function ChatInterface() {
       return toolName.charAt(0).toUpperCase() + toolName.slice(1);
     };
 
+    const renderProgressBar = (progress: { current: number; total: number; message?: string }) => {
+      const percentage = Math.min((progress.current / progress.total) * 100, 100);
+      
+      return (
+        <div className="mt-2 mb-2">
+          <div className="flex items-center justify-between text-xs text-gray-600 dark:text-gray-400 mb-1">
+            <span>{progress.message || 'Installing dependencies...'}</span>
+            <span>{Math.round(percentage)}%</span>
+          </div>
+          <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-2">
+            <div 
+              className="bg-gradient-to-r from-blue-500 to-purple-600 h-2 rounded-full transition-all duration-300 ease-out"
+              style={{ width: `${percentage}%` }}
+            />
+          </div>
+          <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-500 mt-1">
+            <span>{progress.current} / {progress.total} packages</span>
+            <Loader2 className="w-3 h-3 animate-spin" />
+          </div>
+        </div>
+      );
+    };
+
     return (
       <div key={summary.id} className="flex items-start space-x-3 mb-4">
-        <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-full flex items-center justify-center flex-shrink-0">
-          {getToolIcon(toolName)}
+        <div className={`w-8 h-8 rounded-full flex items-center justify-center flex-shrink-0 ${
+          summary.status === 'running' 
+            ? 'bg-gradient-to-br from-blue-500 to-purple-600' 
+            : 'bg-gradient-to-br from-green-500 to-teal-600'
+        }`}>
+          {summary.status === 'running' ? (
+            <Loader2 className="w-4 h-4 text-white animate-spin" />
+          ) : (
+            getToolIcon(toolName)
+          )}
         </div>
-        <div className="flex-1 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+        <div className={`flex-1 p-3 border rounded-lg ${
+          summary.status === 'running' 
+            ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-800' 
+            : 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800'
+        }`}>
           <div className="flex items-center justify-between mb-2">
-            <span className="text-sm font-medium text-green-700 dark:text-green-300">
-              {getToolEmoji(toolName)} {getToolDisplayName(toolName)} ({Math.round(summary.duration / 1000)}s)
+            <span className={`text-sm font-medium ${
+              summary.status === 'running' 
+                ? 'text-blue-700 dark:text-blue-300' 
+                : 'text-green-700 dark:text-green-300'
+            }`}>
+              {getToolEmoji(toolName)} {getToolDisplayName(toolName)} 
+              {summary.status === 'running' ? ' (Running...)' : ` (${Math.round(summary.duration / 1000)}s)`}
             </span>
             <div className="flex items-center space-x-1">
               {summary.status === 'completed' && <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />}
               {summary.status === 'failed' && <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />}
+              {summary.status === 'running' && <Loader2 className="w-4 h-4 text-blue-600 dark:text-blue-400 animate-spin" />}
             </div>
           </div>
           <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
             {summary.description.length > 150 ? `${summary.description.substring(0, 150)}...` : summary.description}
           </p>
+          
+          {/* Show progress bar for running tools with progress */}
+          {summary.status === 'running' && summary.progress && renderProgressBar(summary.progress)}
           
           {/* Show screenshot thumbnail for web scraping */}
           {summary.screenshot && (

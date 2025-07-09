@@ -56,7 +56,13 @@ export function FileEditor({ onFileChange, onFileSave }: FileEditorProps) {
 
   const loadFilesFromContainer = async () => {
     try {
+      console.log('🔄 Starting to load files from container...');
       const containerFiles = await agenticAI.getAllFilesFromContainer();
+      
+      console.log(`📊 Received ${containerFiles.length} files from agenticAI.getAllFilesFromContainer()`);
+      if (containerFiles.length > 0) {
+        console.log('📄 First 10 files from container:', containerFiles.slice(0, 10).map(f => f.path));
+      }
       
       if (containerFiles.length > 0) {
         const buildFileTree = (files: Array<{ path: string; content: string }>): ProjectFile[] => {

@@ -1,5 +1,6 @@
 export interface ContainerInterface {
   executeCommand: (command: string) => Promise<{ output: string; error?: string; exitCode: number }>;
+  executeCommandWithProgress: (command: string, onProgress?: (progress: { current: number; total: number; message?: string }) => void) => Promise<{ output: string; error?: string; exitCode: number }>;
   readFile: (path: string) => Promise<{ content: string; error?: string }>;
   writeFile: (path: string, content: string) => Promise<{ success: boolean; error?: string }>;
   listDirectory: (path: string) => Promise<{ files: string[]; error?: string }>;
@@ -97,6 +98,86 @@ export class DockerContainerInterface implements ContainerInterface {
     
     const result = await response.json();
     return result;
+  }
+
+  async executeCommandWithProgress(
+    command: string, 
+    onProgress?: (progress: { current: number; total: number; message?: string }) => void
+  ): Promise<{ output: string; error?: string; exitCode: number }> {
+    await this.ensureReady();
+    
+    console.log(`🐳 Executing with progress: ${command}`);
+    
+    // If this is an npm install command, simulate progress
+    if (command.includes('npm install')) {
+      return this.executeNpmInstallWithProgress(command, onProgress);
+    }
+    
+    // For other commands, fall back to regular execution
+    return this.executeCommand(command);
+  }
+
+  private async executeNpmInstallWithProgress(
+    command: string,
+    onProgress?: (progress: { current: number; total: number; message?: string }) => void
+  ): Promise<{ output: string; error?: string; exitCode: number }> {
+    // Simulate progress for npm install
+    const totalPackages = 50; // Estimate for typical React project
+    let currentPackage = 0;
+    
+    const progressInterval = setInterval(() => {
+      if (currentPackage < totalPackages) {
+        currentPackage += Math.floor(Math.random() * 3) + 1; // Random progress increment
+        currentPackage = Math.min(currentPackage, totalPackages);
+        
+        const messages = [
+          'Installing dependencies...',
+          'Downloading packages...',
+          'Building node_modules...',
+          'Resolving dependencies...',
+          'Fetching packages...'
+        ];
+        
+        const randomMessage = messages[Math.floor(Math.random() * messages.length)];
+        
+        onProgress?.({
+          current: currentPackage,
+          total: totalPackages,
+          message: randomMessage
+        });
+      }
+    }, 200); // Update every 200ms
+    
+    try {
+      // Execute the actual command
+      const response = await fetch(`${this.baseUrl}/api/container/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          command,
+          workingDir: this.workingDir
+        })
+      });
+      
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      
+      const result = await response.json();
+      
+      // Complete the progress
+      clearInterval(progressInterval);
+      onProgress?.({
+        current: totalPackages,
+        total: totalPackages,
+        message: 'Installation complete!'
+      });
+      
+      return result;
+    } catch (error) {
+      clearInterval(progressInterval);
+      throw error;
+    }
   }
 
   async readFile(filePath: string): Promise<{ content: string; error?: string }> {
@@ -227,7 +308,10 @@ export class DockerContainerInterface implements ContainerInterface {
   async setWorkingDirectory(dirPath: string): Promise<{ success: boolean; error?: string }> {
     try {
       // Update local working directory
+      const oldWorkingDir = this.workingDir;
       this.workingDir = dirPath.startsWith('/') ? dirPath : `/workspace/${dirPath}`;
+      
+      console.log(`📁 Setting working directory: ${oldWorkingDir} → ${this.workingDir}`);
       
       // Also update the container's working directory on the backend
       const response = await fetch(`${this.baseUrl}/api/container/set-working-dir`, {
@@ -241,14 +325,18 @@ export class DockerContainerInterface implements ContainerInterface {
       }
       
       const result = await response.json();
+      console.log(`✅ Working directory updated successfully: ${this.workingDir}`);
       return result;
     } catch (error: any) {
+      console.error(`❌ Failed to set working directory: ${error.message}`);
       return { success: false, error: error.message };
     }
   }
 
   async getAllFiles(): Promise<Array<{ path: string; content: string }>> {
     await this.ensureReady();
+    
+    console.log(`🔍 Getting all files from container working directory: ${this.workingDir}`);
     
     const response = await fetch(`${this.baseUrl}/api/container/all-files`, {
       method: 'POST',
@@ -263,6 +351,12 @@ export class DockerContainerInterface implements ContainerInterface {
     }
     
     const result = await response.json();
+    console.log(`📁 Backend returned ${result.files?.length || 0} files from directory: ${this.workingDir}`);
+    
+    if (result.files && result.files.length > 0) {
+      console.log(`📄 First few file paths:`, result.files.slice(0, 5).map((f: any) => f.path));
+    }
+    
     return result.files || [];
   }
 

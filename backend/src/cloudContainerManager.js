@@ -542,58 +542,62 @@ export default App`;
         
         logger.info(`📁 Updated container working directory to: ${projectPath}`);
         
-        // Install dependencies with shorter timeout
+        // Install dependencies with cloud-optimized settings
         logger.info(`📦 Installing dependencies for ${projectName}...`);
         const installOptions = {
           cwd: projectPath,
           maxBuffer: 10 * 1024 * 1024,
-          timeout: 60000, // 1 minute for npm install
+          timeout: 120000, // 2 minutes for npm install in cloud environment
           env: {
             ...process.env,
-            HOME: projectPath,
-            npm_config_cache: path.join(projectPath, '.npm'),
-            npm_config_prefix: projectPath
+            // Use global npm cache to avoid permission issues
+            npm_config_fund: 'false',
+            npm_config_audit: 'false',
+            npm_config_update_notifier: 'false',
+            NODE_ENV: 'development'
           }
         };
         
-        try {
-          await fs.ensureDir(path.join(projectPath, '.npm'));
-          const { stdout: installStdout } = await execAsync('npm install', installOptions);
-          logger.info(`✅ Dependencies installed successfully`);
-          logger.info(`📤 Install output: ${installStdout.substring(0, 300)}...`);
-        } catch (installError) {
-          logger.error(`❌ Failed to install dependencies: ${installError.message}`);
+        // Try different npm install strategies
+        const installStrategies = [
+          'npm install --no-fund --no-audit',
+          'npm install --legacy-peer-deps --no-fund --no-audit',
+          'npm install --force --no-fund --no-audit',
+          'npm ci --no-fund --no-audit'
+        ];
+        
+        let installSuccess = false;
+        for (const strategy of installStrategies) {
+          if (installSuccess) break;
           
-          // Try with --force flag as fallback
           try {
-            logger.info(`🔄 Retrying npm install with --force...`);
-            const { stdout: forceInstallStdout } = await execAsync('npm install --force', installOptions);
-            logger.info(`✅ Dependencies installed with --force`);
-            logger.info(`📤 Force install output: ${forceInstallStdout.substring(0, 300)}...`);
-          } catch (forceError) {
-            logger.error(`❌ Force install also failed: ${forceError.message}`);
+            logger.info(`🔄 Trying: ${strategy}`);
+            const { stdout: installStdout } = await execAsync(strategy, installOptions);
+            logger.info(`✅ Dependencies installed successfully with: ${strategy}`);
+            logger.info(`📤 Install output: ${installStdout.substring(0, 300)}...`);
+            installSuccess = true;
+            break;
+          } catch (error) {
+            logger.warn(`⚠️ Strategy failed: ${strategy} - ${error.message}`);
+            
+            // If package-lock.json doesn't exist and npm ci failed, remove it from strategies
+            if (strategy.includes('npm ci')) {
+              const packageLockPath = path.join(projectPath, 'package-lock.json');
+              if (!await fs.pathExists(packageLockPath)) {
+                logger.info(`📋 No package-lock.json found, skipping npm ci strategies`);
+                continue;
+              }
+            }
           }
+        }
+        
+        if (!installSuccess) {
+          logger.error(`❌ All npm install strategies failed for ${projectName}`);
+          logger.info(`💡 Project structure created, but dependencies need manual installation`);
         }
         
         // Configure dev server to use port 3000 to avoid conflict with backend (port 10000)
         await this.configureDevServer(projectPath);
-        
-        // Also install dependencies immediately to avoid issues
-        logger.info(`📦 Installing dependencies for immediate use...`);
-        try {
-          const installResult = await execAsync('npm install', {
-            cwd: projectPath,
-            timeout: 60000,
-            env: {
-              ...process.env,
-              HOME: projectPath,
-              npm_config_cache: path.join(projectPath, '.npm')
-            }
-          });
-          logger.info(`✅ Dependencies installed for immediate use`);
-        } catch (installError) {
-          logger.warn(`⚠️ Dependency installation warning: ${installError.message}`);
-        }
       } else {
         logger.error(`❌ Project directory not found: ${projectPath}`);
       }

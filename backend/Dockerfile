@@ -52,9 +52,10 @@ RUN npx playwright install-deps
 COPY src/ ./src/
 COPY browser-agent/ ./browser-agent/
 
-# Create non-root user
-RUN groupadd -r nodejs && useradd -r -g nodejs nodeuser \
-    && chown -R nodeuser:nodejs /workspace
+# Create non-root user with home directory and proper permissions
+RUN groupadd -r nodejs && useradd -r -g nodejs -m nodeuser \
+    && chown -R nodeuser:nodejs /workspace \
+    && chown -R nodeuser:nodejs /home/nodeuser
 
 # Switch to nodeuser and install Playwright browsers (browsers can be installed as user)
 USER nodeuser

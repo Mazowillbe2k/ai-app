@@ -24,7 +24,7 @@ export class DockerContainerInterface implements ContainerInterface {
       // Browser environment - use Vite injected variables or fallback to deployed backend
       this.baseUrl = (window as any).__VITE_BACKEND_URL__ || 
                      import.meta.env.VITE_BACKEND_URL || 
-                     'https://ai-app-jyur.onrender.com';
+                     'https://ai-agent-backend-fz5n.onrender.com';
     } else {
       // Node.js environment - use process.env
       this.baseUrl = process.env.VITE_BACKEND_URL || 'http://localhost:3001';

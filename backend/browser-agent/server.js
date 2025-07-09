@@ -40,21 +40,56 @@ app.post('/api/browse', async (req, res) => {
 
   let browser;
   try {
-    browser = await chromium.launch({ headless: true });
+    // Enhanced browser configuration for cloud environments
+    const browserOptions = {
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-accelerated-2d-canvas',
+        '--no-first-run',
+        '--no-zygote',
+        '--single-process',
+        '--disable-gpu',
+        '--disable-extensions',
+        '--disable-background-timer-throttling',
+        '--disable-backgrounding-occluded-windows',
+        '--disable-renderer-backgrounding'
+      ]
+    };
+
+    browser = await chromium.launch(browserOptions);
     const page = await browser.newPage();
 
-    await page.goto(url, { timeout: 10000 });
+    // Set a user agent to avoid bot detection
+    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+
+    // Navigate with extended timeout and better error handling
+    await page.goto(url, { 
+      timeout: 30000,
+      waitUntil: 'networkidle'
+    });
+
+    // Wait a bit for dynamic content to load
+    await page.waitForTimeout(2000);
 
     const title = await page.title();
     const html = await page.content();
 
+    console.log(`✅ Successfully browsed: ${url} (${title})`);
+
     res.json({
       title,
-      html: html.slice(0, 5000), // Limit for safety
+      html: html.slice(0, 50000), // Increased limit for better content capture
     });
   } catch (err) {
     console.error('❌ Browsing failed:', err);
-    res.status(500).json({ error: 'Failed to load page', details: err.message });
+    res.status(500).json({ 
+      error: 'Failed to load page', 
+      details: err.message,
+      url: url
+    });
   } finally {
     if (browser) {
       await browser.close();
@@ -80,6 +115,8 @@ app.use((err, req, res, next) => {
 // Start server
 app.listen(port, '0.0.0.0', () => {
   console.log(`✅ Browser Agent listening on http://0.0.0.0:${port}`);
+  console.log(`📋 Health: http://0.0.0.0:${port}/health`);
+  console.log(`🌐 Browse: http://0.0.0.0:${port}/api/browse`);
 });
 
 // Graceful shutdown

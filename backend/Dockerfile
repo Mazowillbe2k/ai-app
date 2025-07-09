@@ -1,9 +1,10 @@
 # Use Ubuntu 22.04 LTS as base image
 FROM ubuntu:22.04
 
+# Avoid prompts from apt
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install essential packages
+# Install essential packages including Node.js 20
 RUN apt-get update && apt-get install -y \
     curl \
     wget \
@@ -11,8 +12,6 @@ RUN apt-get update && apt-get install -y \
     nano \
     vim \
     build-essential \
-    python3 \
-    python3-pip \
     ca-certificates \
     gnupg \
     lsb-release \
@@ -39,22 +38,15 @@ RUN curl -fsSL https://bun.sh/install | bash \
 # Install degit and glob globally
 RUN npm install -g degit glob
 
-# Install Docker CLI
-RUN mkdir -p /etc/apt/keyrings \
-    && curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg \
-    && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list > /dev/null \
-    && apt-get update \
-    && apt-get install -y docker-ce-cli \
-    && rm -rf /var/lib/apt/lists/*
-
 # Create workspace
 WORKDIR /workspace
 
 # Copy dependencies and install
 COPY package*.json ./
-RUN npm install --omit=dev
+RUN npm install
 
-# Install Playwright browsers
+# Install Playwright browsers (this was missing in the previous version)
+RUN npx playwright install-deps
 RUN npx playwright install chromium
 
 # Copy backend and browser agent source

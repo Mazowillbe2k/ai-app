@@ -10,7 +10,18 @@ export interface ContainerInterface {
   setWorkingDirectory: (path: string) => Promise<{ success: boolean; error?: string }>;
   getAllFiles: () => Promise<Array<{ path: string; content: string }>>;
   getPreviewUrl: () => Promise<string | null>;
-  browse: (url: string) => Promise<{ title: string; html: string; error?: string }>;
+  browse: (url: string) => Promise<{ 
+    title: string; 
+    html: string; 
+    error?: string; 
+    screenshot?: string;
+    metadata?: {
+      description?: string;
+      image?: string;
+      favicon?: string;
+      url?: string;
+    };
+  }>;
 }
 
 export class DockerContainerInterface implements ContainerInterface {
@@ -298,7 +309,18 @@ export class DockerContainerInterface implements ContainerInterface {
     }
   }
 
-  async browse(url: string): Promise<{ title: string; html: string; error?: string }> {
+  async browse(url: string): Promise<{ 
+    title: string; 
+    html: string; 
+    error?: string; 
+    screenshot?: string;
+    metadata?: {
+      description?: string;
+      image?: string;
+      favicon?: string;
+      url?: string;
+    };
+  }> {
     await this.ensureReady();
     
     console.log(`🌐 Browsing to: ${url}`);
@@ -327,6 +349,8 @@ export class DockerContainerInterface implements ContainerInterface {
       return {
         title: result.title || 'No title',
         html: result.html || '',
+        screenshot: result.screenshot,
+        metadata: result.metadata,
         error: undefined
       };
     } catch (error) {

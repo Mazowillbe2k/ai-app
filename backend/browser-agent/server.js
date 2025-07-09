@@ -77,11 +77,43 @@ app.post('/api/browse', async (req, res) => {
     const title = await page.title();
     const html = await page.content();
 
+    // Capture screenshot for thumbnail
+    let screenshot = null;
+    try {
+      const screenshotBuffer = await page.screenshot({ 
+        fullPage: true,
+        quality: 60,
+        type: 'jpeg'
+      });
+      screenshot = `data:image/jpeg;base64,${screenshotBuffer.toString('base64')}`;
+    } catch (screenshotError) {
+      console.warn('⚠️ Failed to capture screenshot:', screenshotError.message);
+    }
+
+    // Get page metadata
+    const metadata = await page.evaluate(() => {
+      const metaDescription = document.querySelector('meta[name="description"]')?.getAttribute('content');
+      const metaImage = document.querySelector('meta[property="og:image"]')?.getAttribute('content');
+      const favicon = document.querySelector('link[rel="icon"]')?.getAttribute('href') || 
+                     document.querySelector('link[rel="shortcut icon"]')?.getAttribute('href');
+      
+      return {
+        description: metaDescription,
+        image: metaImage,
+        favicon: favicon
+      };
+    });
+
     console.log(`✅ Successfully browsed: ${url} (${title})`);
 
     res.json({
       title,
       html: html.slice(0, 50000), // Increased limit for better content capture
+      screenshot,
+      metadata: {
+        ...metadata,
+        url: url
+      }
     });
   } catch (err) {
     console.error('❌ Browsing failed:', err);

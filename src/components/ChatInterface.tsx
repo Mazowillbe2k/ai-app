@@ -18,6 +18,15 @@ interface ToolSummary {
   files: string[];
   duration: number;
   status: 'completed' | 'running' | 'failed';
+  toolName?: string;
+  screenshot?: string;
+  metadata?: {
+    url?: string;
+    title?: string;
+    description?: string;
+    image?: string;
+    favicon?: string;
+  };
 }
 
 export default function ChatInterface() {
@@ -83,14 +92,58 @@ export default function ChatInterface() {
       onToolExecution: (execution: ToolExecution) => {
         addToolExecution(execution);
         
-        // Create tool summary
-        if (execution.status === 'completed') {
+        // Create tool summary with enhanced information
+        if (execution.status === 'completed' || execution.status === 'failed') {
+          const getDetailedDescription = (toolName: string, result: any, parameters: any) => {
+            switch (toolName) {
+              case 'startup':
+                return `Created ${parameters?.project_name || 'project'} with ${parameters?.framework || 'React'} framework`;
+              case 'edit_file':
+                return `Edited ${parameters?.relative_file_path || 'file'} - ${parameters?.instructions || 'File updated'}`;
+              case 'read_file':
+                return `Read ${parameters?.relative_file_path || 'file'}`;
+              case 'bash':
+                return `Executed: ${parameters?.command || 'command'}`;
+              case 'web_scrape':
+                return `Scraped ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page content extracted'}`;
+              case 'browse':
+                return `Browsed ${parameters?.url || 'website'} - ${result?.metadata?.title || 'Page visited'}`;
+              case 'ls':
+                return `Listed directory ${parameters?.relative_dir_path || parameters?.path || '.'} - ${result?.metadata?.fileCount || 0} items`;
+              default:
+                return `${toolName} - ${result?.output?.substring(0, 100) || 'Operation completed'}`;
+            }
+          };
+
+          const getAffectedFiles = (toolName: string, result: any, parameters: any) => {
+            const files = [];
+            
+            if (parameters?.relative_file_path) {
+              files.push(parameters.relative_file_path);
+            }
+            if (parameters?.file_path) {
+              files.push(parameters.file_path);
+            }
+            if (result?.metadata?.files) {
+              files.push(...result.metadata.files);
+            }
+            if (result?.metadata?.projectName && toolName === 'startup') {
+              files.push(`${result.metadata.projectName}/package.json`, `${result.metadata.projectName}/src/`);
+            }
+            
+            return [...new Set(files)]; // Remove duplicates
+          };
+
           const summary: ToolSummary = {
             id: execution.id,
-            description: `${execution.toolName} - ${execution.result.output?.substring(0, 100) || 'Completed'}`,
-            files: execution.result.metadata?.files || [],
+            toolName: execution.toolName,
+            description: getDetailedDescription(execution.toolName, execution.result, execution.parameters),
+            files: getAffectedFiles(execution.toolName, execution.result, execution.parameters),
             duration: execution.duration,
-            status: 'completed'
+            status: execution.status === 'completed' ? 'completed' : 'failed',
+            // Include screenshot and metadata for web scraping
+            screenshot: execution.toolName === 'web_scrape' ? execution.result.metadata?.screenshot : undefined,
+            metadata: execution.toolName === 'web_scrape' ? execution.result.metadata : undefined
           };
           setToolSummaries(prev => [...prev, summary]);
         }
@@ -407,9 +460,9 @@ export default function ChatInterface() {
           isActive ? 'bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800' : 
           'bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700'
         }`}>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between">
             <span className={`text-sm font-medium ${isActive ? 'text-blue-700 dark:text-blue-300' : 'text-gray-600 dark:text-gray-400'}`}>
-              {isActive ? '🧠 AI Thinking...' : `💭 Thought for ${duration}s`}
+              {isActive ? '🧠 AI is thinking...' : `💭 Thought for ${duration}s`}
             </span>
             {isActive && (
               <div className="flex items-center space-x-2">
@@ -422,44 +475,110 @@ export default function ChatInterface() {
               </div>
             )}
           </div>
-          <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">
-            {bubble.content}
-          </p>
+          {/* Only show thinking content for completed thoughts, hide for active thinking */}
+          {!isActive && (
+            <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed mt-2">
+              {bubble.content.length > 200 ? `${bubble.content.substring(0, 200)}...` : bubble.content}
+            </p>
+          )}
         </div>
       </div>
     );
   };
 
   const renderToolSummary = (summary: ToolSummary) => {
+    const toolName = summary.toolName || summary.description;
+    
     const getToolIcon = (toolName: string) => {
-      if (toolName.includes('file') || toolName.includes('edit')) return <FileText className="w-4 h-4" />;
-      if (toolName.includes('terminal') || toolName.includes('cmd')) return <Terminal className="w-4 h-4" />;
-      if (toolName.includes('search')) return <FolderOpen className="w-4 h-4" />;
+      if (toolName === 'startup') return <Play className="w-4 h-4" />;
+      if (toolName === 'edit_file') return <FileText className="w-4 h-4" />;
+      if (toolName === 'read_file') return <FolderOpen className="w-4 h-4" />;
+      if (toolName === 'bash') return <Terminal className="w-4 h-4" />;
+      if (toolName === 'web_scrape') return <Zap className="w-4 h-4" />;
+      if (toolName === 'browse') return <Zap className="w-4 h-4" />;
+      if (toolName === 'ls') return <FolderOpen className="w-4 h-4" />;
       return <Code className="w-4 h-4" />;
+    };
+
+    const getToolEmoji = (toolName: string) => {
+      if (toolName === 'startup') return '🚀';
+      if (toolName === 'edit_file') return '✏️';
+      if (toolName === 'read_file') return '📖';
+      if (toolName === 'bash') return '💻';
+      if (toolName === 'web_scrape') return '🌐';
+      if (toolName === 'browse') return '🔍';
+      if (toolName === 'ls') return '📁';
+      return '🛠️';
+    };
+
+    const getToolDisplayName = (toolName: string) => {
+      if (toolName === 'startup') return 'Project Creation';
+      if (toolName === 'edit_file') return 'File Edit';
+      if (toolName === 'read_file') return 'File Read';
+      if (toolName === 'bash') return 'Command Execution';
+      if (toolName === 'web_scrape') return 'Web Scraping';
+      if (toolName === 'browse') return 'Web Browse';
+      if (toolName === 'ls') return 'Directory List';
+      return toolName.charAt(0).toUpperCase() + toolName.slice(1);
     };
 
     return (
       <div key={summary.id} className="flex items-start space-x-3 mb-4">
         <div className="w-8 h-8 bg-gradient-to-br from-green-500 to-teal-600 rounded-full flex items-center justify-center flex-shrink-0">
-          {getToolIcon(summary.description)}
+          {getToolIcon(toolName)}
         </div>
         <div className="flex-1 p-3 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
           <div className="flex items-center justify-between mb-2">
             <span className="text-sm font-medium text-green-700 dark:text-green-300">
-              🛠️ Tool Execution ({Math.round(summary.duration / 1000)}s)
+              {getToolEmoji(toolName)} {getToolDisplayName(toolName)} ({Math.round(summary.duration / 1000)}s)
             </span>
-            <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />
+            <div className="flex items-center space-x-1">
+              {summary.status === 'completed' && <CheckCircle className="w-4 h-4 text-green-600 dark:text-green-400" />}
+              {summary.status === 'failed' && <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400" />}
+            </div>
           </div>
           <p className="text-sm text-gray-700 dark:text-gray-300 mb-2">
-            {summary.description}
+            {summary.description.length > 150 ? `${summary.description.substring(0, 150)}...` : summary.description}
           </p>
+          
+          {/* Show screenshot thumbnail for web scraping */}
+          {summary.screenshot && (
+            <div className="mt-2 mb-2">
+              <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                Page preview:
+              </div>
+              <div className="relative">
+                <img 
+                  src={summary.screenshot} 
+                  alt="Website screenshot" 
+                  className="w-full max-w-sm h-32 object-cover rounded-lg border border-gray-200 dark:border-gray-600 cursor-pointer hover:opacity-80 transition-opacity"
+                  onClick={() => window.open(summary.metadata?.url, '_blank')}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/20 to-transparent rounded-lg" />
+                <div className="absolute bottom-1 left-1 right-1 text-xs text-white bg-black/50 px-2 py-1 rounded truncate">
+                  {summary.metadata?.title || summary.metadata?.url}
+                </div>
+              </div>
+            </div>
+          )}
+          
           {summary.files.length > 0 && (
-            <div className="flex flex-wrap gap-1">
-              {summary.files.map((file, index) => (
-                <span key={index} className="px-2 py-1 bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-200 text-xs rounded">
-                  {file}
-                </span>
-              ))}
+            <div className="mt-2">
+              <div className="text-xs text-gray-600 dark:text-gray-400 mb-1">
+                Files affected ({summary.files.length}):
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {summary.files.slice(0, 5).map((file, index) => (
+                  <span key={index} className="px-2 py-1 bg-green-100 dark:bg-green-800 text-green-800 dark:text-green-200 text-xs rounded">
+                    {file.length > 20 ? `...${file.slice(-20)}` : file}
+                  </span>
+                ))}
+                {summary.files.length > 5 && (
+                  <span className="px-2 py-1 bg-gray-100 dark:bg-gray-700 text-gray-600 dark:text-gray-400 text-xs rounded">
+                    +{summary.files.length - 5} more
+                  </span>
+                )}
+              </div>
             </div>
           )}
         </div>

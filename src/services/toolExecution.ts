@@ -660,7 +660,12 @@ export default defineConfig({
           title: browseResult.title,
           selector,
           contentLength: content.length,
-          isRealBrowser: true
+          isRealBrowser: true,
+          // Include screenshot and additional metadata
+          screenshot: browseResult.screenshot,
+          description: browseResult.metadata?.description,
+          image: browseResult.metadata?.image,
+          favicon: browseResult.metadata?.favicon
         }
       };
     } catch (error) {
@@ -735,7 +740,12 @@ export default defineConfig({
           url,
           title: result.title,
           contentLength: result.html.length,
-          isRealBrowser: true
+          isRealBrowser: true,
+          // Include screenshot and additional metadata
+          screenshot: result.screenshot,
+          description: result.metadata?.description,
+          image: result.metadata?.image,
+          favicon: result.metadata?.favicon
         }
       };
     } catch (error) {

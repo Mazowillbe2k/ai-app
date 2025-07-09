@@ -574,11 +574,68 @@ export default App`;
             logger.error(`❌ Force install also failed: ${forceError.message}`);
           }
         }
+        
+        // Configure dev server to use port 3000 to avoid conflict with backend (port 10000)
+        await this.configureDevServer(projectPath);
       } else {
         logger.error(`❌ Project directory not found: ${projectPath}`);
       }
     } catch (error) {
       logger.error(`❌ Post-creation setup failed: ${error.message}`);
+    }
+  }
+
+  // Configure development server to use port 3000
+  async configureDevServer(projectPath) {
+    try {
+      logger.info(`🔧 Configuring dev server for port 3000...`);
+      
+      // Check if it's a Vite project
+      const packageJsonPath = path.join(projectPath, 'package.json');
+      if (await fs.pathExists(packageJsonPath)) {
+        const packageJson = await fs.readJson(packageJsonPath);
+        
+        // Configure Vite to use port 3000
+        const viteConfigPath = path.join(projectPath, 'vite.config.js');
+        const viteConfigTsPath = path.join(projectPath, 'vite.config.ts');
+        
+        const viteConfig = `import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+
+export default defineConfig({
+  plugins: [react()],
+  server: {
+    port: 3000,
+    host: '0.0.0.0'
+  }
+})`;
+
+        if (await fs.pathExists(viteConfigTsPath)) {
+          await fs.writeFile(viteConfigTsPath, viteConfig);
+          logger.info(`✅ Updated vite.config.ts with port 3000`);
+        } else if (await fs.pathExists(viteConfigPath)) {
+          await fs.writeFile(viteConfigPath, viteConfig);
+          logger.info(`✅ Updated vite.config.js with port 3000`);
+        } else {
+          // Create vite.config.js if it doesn't exist
+          await fs.writeFile(viteConfigPath, viteConfig);
+          logger.info(`✅ Created vite.config.js with port 3000`);
+        }
+        
+        // Update package.json scripts to use correct port
+        if (packageJson.scripts && packageJson.scripts.dev) {
+          packageJson.scripts.dev = packageJson.scripts.dev.replace(/--port \d+/, '--port 3000');
+          if (!packageJson.scripts.dev.includes('--port')) {
+            packageJson.scripts.dev += ' --port 3000';
+          }
+          await fs.writeJson(packageJsonPath, packageJson, { spaces: 2 });
+          logger.info(`✅ Updated package.json dev script with port 3000`);
+        }
+      }
+      
+      logger.info(`✅ Dev server configured for port 3000`);
+    } catch (error) {
+      logger.error(`❌ Failed to configure dev server: ${error.message}`);
     }
   }
 

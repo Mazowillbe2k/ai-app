@@ -60,10 +60,10 @@ app.post('/api/browse', async (req, res) => {
     };
 
     browser = await chromium.launch(browserOptions);
-    const page = await browser.newPage();
-
-    // Set a user agent to avoid bot detection
-    await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    });
+    const page = await context.newPage();
 
     // Navigate with extended timeout and better error handling
     await page.goto(url, { 

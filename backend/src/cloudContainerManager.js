@@ -1144,6 +1144,33 @@ export default defineConfig({
     }
   }
 
+  // Clear workspace
+  async clearWorkspace() {
+    try {
+      logger.info('🧹 Clearing workspace...');
+      
+      // Clear all containers
+      this.containers.clear();
+      
+      // Clean up workspace directory
+      if (await fs.pathExists(this.workspaceDir)) {
+        await fs.emptyDir(this.workspaceDir);
+        logger.info('✅ Workspace directory cleared');
+      }
+      
+      // Clean up agent workspace directory
+      if (await fs.pathExists(this.agentWorkspaceDir)) {
+        await fs.emptyDir(this.agentWorkspaceDir);
+        logger.info('✅ Agent workspace directory cleared');
+      }
+      
+      return { success: true, message: 'Workspace cleared successfully' };
+    } catch (error) {
+      logger.error('❌ Failed to clear workspace:', error);
+      throw error;
+    }
+  }
+
   // Cleanup containers
   async cleanup() {
     try {

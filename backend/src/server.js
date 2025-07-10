@@ -67,6 +67,15 @@ app.use(express.urlencoded({ extended: true }));
 // Health check endpoint - CRITICAL for Render
 app.get('/health', (req, res) => {
   console.log('📋 Health check requested');
+  
+  // Clear workspace on health check (triggered by frontend refresh)
+  if (req.query.clear === 'true') {
+    console.log('🧹 Clearing workspace due to frontend refresh');
+    containerManager.clearWorkspace().catch(error => {
+      console.error('❌ Failed to clear workspace:', error);
+    });
+  }
+  
   res.status(200).json({ 
     status: 'healthy', 
     timestamp: new Date().toISOString(),
@@ -94,6 +103,21 @@ app.post('/api/container/init', async (req, res) => {
     res.json({ success: true, ...result });
   } catch (error) {
     console.error('❌ Container initialization failed:', error);
+    res.status(500).json({ 
+      success: false, 
+      error: error.message 
+    });
+  }
+});
+
+// Clear workspace endpoint
+app.post('/api/container/clear', async (req, res) => {
+  try {
+    console.log('🧹 Clearing workspace...');
+    const result = await containerManager.clearWorkspace();
+    res.json({ success: true, message: 'Workspace cleared successfully', ...result });
+  } catch (error) {
+    console.error('❌ Workspace clear failed:', error);
     res.status(500).json({ 
       success: false, 
       error: error.message 
@@ -375,6 +399,8 @@ app.post('/api/container/set-working-dir', async (req, res) => {
     });
   }
 });
+
+
 
 // Browser agent proxy endpoint
 app.post('/api/browse', async (req, res) => {

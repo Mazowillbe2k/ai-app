@@ -287,6 +287,38 @@ export class DockerContainerManager {
     return { url: null };
   }
 
+  // Clear workspace
+  async clearWorkspace() {
+    try {
+      logger.info('🧹 Clearing workspace...');
+      
+      // Stop and remove all containers
+      for (const [containerId, container] of this.containers) {
+        try {
+          await execAsync(`docker stop ${containerId}`);
+          await execAsync(`docker rm ${containerId}`);
+          logger.info(`✅ Stopped and removed container: ${containerId}`);
+        } catch (error) {
+          logger.warn(`⚠️ Failed to stop/remove container ${containerId}:`, error.message);
+        }
+      }
+      
+      // Clear containers map
+      this.containers.clear();
+      
+      // Clean up workspace directory
+      if (await fs.pathExists(this.workspaceDir)) {
+        await fs.emptyDir(this.workspaceDir);
+        logger.info('✅ Workspace directory cleared');
+      }
+      
+      return { success: true, message: 'Workspace cleared successfully' };
+    } catch (error) {
+      logger.error('❌ Failed to clear workspace:', error);
+      throw error;
+    }
+  }
+
   // Cleanup containers
   async cleanup() {
     try {
